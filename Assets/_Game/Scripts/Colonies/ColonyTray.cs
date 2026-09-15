@@ -76,42 +76,12 @@ namespace ColonyFlow
                 go.transform.SetParent(slotsRoot, false);
                 go.transform.localScale = new Vector3(slotSize.x, slotSize.y, 1f);
                 
-                // Spawn at the right edge initially
-                go.transform.localPosition = new Vector3((i - (oldCapacity - 1) * 0.5f) * horizontalSpacing, 0.12f, 0f);
-                
                 SpriteRenderer renderer = go.AddComponent<SpriteRenderer>();
                 var slot = go.AddComponent<ColonySlot>();
                 slot.Configure(renderer);
                 slot.Initialize(i);
                 slots.Add(slot);
             }
-
-            // Reposition all slots to center them again
-            RepositionSlotsSmoothly();
-        }
-
-        private void RepositionSlotsSmoothly()
-        {
-            int capacity = slots.Count;
-            for (int i = 0; i < capacity; i++)
-            {
-                if (slots[i] == null) continue;
-                Vector3 targetPos = new Vector3((i - (capacity - 1) * 0.5f) * horizontalSpacing, 0.12f, 0f);
-                StartCoroutine(MoveSlotCoroutine(slots[i].transform, targetPos, 0.25f));
-            }
-        }
-
-        private System.Collections.IEnumerator MoveSlotCoroutine(Transform t, Vector3 targetPos, float duration)
-        {
-            float elapsed = 0f;
-            Vector3 startPos = t.localPosition;
-            while (elapsed < duration)
-            {
-                elapsed += Time.deltaTime;
-                t.localPosition = Vector3.Lerp(startPos, targetPos, elapsed / duration);
-                yield return null;
-            }
-            t.localPosition = targetPos;
         }
 
         private void ClearObjects()

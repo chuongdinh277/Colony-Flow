@@ -131,6 +131,22 @@ namespace ColonyFlow
         {
             if (!IsRunning) return;
             
+            if (tray != null && tray.Slots != null)
+            {
+                for (int i = 0; i < tray.Slots.Count; i++)
+                {
+                    ColonySlot slot = tray.Slots[i];
+                    if (slot != null && !slot.IsEmpty && slot.Colony != null)
+                    {
+                        if (colonyTiles.TryGetValue(slot.Colony, out ColonyTile tile) && tile != null && tile.View != null)
+                        {
+                            tile.View.MoveTo(slot.transform.position);
+                        }
+                        slot.Colony.UpdateAntSpawnPosition(slot.AntSpawnWorldPosition);
+                    }
+                }
+            }
+
             foreach (var kvp in colonyTiles)
             {
                 if (!kvp.Key.IsReady && kvp.Value.View != null)
@@ -160,6 +176,11 @@ namespace ColonyFlow
             if (deadlockTimer < deadlockDelay) return;
             IsRunning = false;
             Failed?.Invoke();
+        }
+
+        public ColonyTile GetColonyTile(ColonyController colony)
+        {
+            return colony != null && colonyTiles.TryGetValue(colony, out ColonyTile tile) ? tile : null;
         }
 
         private bool OnTileSelected(ColonyTile tile)
@@ -204,7 +225,7 @@ namespace ColonyFlow
 
         public void RefreshTraySlotPositions()
         {
-            if (tray == null) return;
+            if (tray == null || tray.Slots == null) return;
             for (int i = 0; i < tray.Slots.Count; i++)
             {
                 ColonySlot slot = tray.Slots[i];
@@ -214,6 +235,7 @@ namespace ColonyFlow
                     {
                         tile.View.MoveTo(slot.transform.position);
                     }
+                    slot.Colony.UpdateAntSpawnPosition(slot.AntSpawnWorldPosition);
                 }
             }
         }

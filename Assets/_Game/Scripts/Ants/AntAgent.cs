@@ -8,6 +8,7 @@ namespace ColonyFlow
     {
         [SerializeField, Min(0.1f)] private float moveSpeed = 1.4f;
         [SerializeField, Min(0f)] private float attackDuration = 0.32f;
+        [SerializeField, Range(0.5f, 3f)] private float sizeMultiplier = 1.28f;
         [SerializeField] private SpriteRenderer spriteRenderer;
         [SerializeField] private AntVisual antVisual;
 
@@ -73,7 +74,7 @@ namespace ColonyFlow
             else if (spriteRenderer != null) spriteRenderer.color = color;
             EnsureVisibleSpriteAnt(color);
             // Keep the ant readable as a polished character at phone resolution.
-            travelScale = Vector3.one * (board.CellSize * 1.1f);
+            travelScale = Vector3.one * (board.CellSize * sizeMultiplier);
             TF.localScale = travelScale;
             if (route.Count > 0) TF.position = route[0];
             State = route.Count > 1 ? AntState.OnBorder : AntState.Attacking;

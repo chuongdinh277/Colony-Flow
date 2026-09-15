@@ -22,7 +22,7 @@ namespace ColonyFlow
         private readonly HashSet<AntAgent> activeAnts = new();
         private readonly Queue<PreparedAnt> preparedAnts = new();
         private readonly int maxConcurrentAnts;
-        private readonly Vector3 antSpawnPosition;
+        private Vector3 antSpawnPosition;
         private readonly Action<ColonyController> completed;
         private readonly float spawnInterval;
         private int routePendingCount;
@@ -36,6 +36,11 @@ namespace ColonyFlow
         public Color DisplayColor => palette.GetColor(ColorIndex);
         public bool IsReady { get; set; } = false;
         public event Action<int> RemainingCountChanged;
+
+        public void UpdateAntSpawnPosition(Vector3 newSpawnPosition)
+        {
+            antSpawnPosition = board.ProjectToGameplayPlane(newSpawnPosition);
+        }
 
         public ColonyController(int colorIndex, int count, PixelBoard board, AntRouteService routeService,
             AntManager antManager, FPSManager fpsManager, PixelPalette palette, int maxConcurrentAnts, float antSpawnInterval, Vector3 spawnPosition,

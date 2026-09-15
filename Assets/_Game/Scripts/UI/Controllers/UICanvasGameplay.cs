@@ -455,7 +455,15 @@ public class UICanvasGameplay : UICanvas
             tray.AddExtraSlot(1);
         }
 
-        // 3. Immediately refresh existing tray box positions so all occupied boxes re-center smoothly
+        // Force UI canvases & layout rebuild immediately so imgTraySlots get updated transform positions right away
+        Canvas.ForceUpdateCanvases();
+        if (traySlotsContainer is RectTransform rtContainer)
+        {
+            LayoutRebuilder.ForceRebuildLayoutImmediate(rtContainer);
+        }
+
+        // Synchronize 3D tray slots and any occupied box views immediately
+        SyncTraySlotWorldPositions();
         if (LevelManager.Ins != null && LevelManager.Ins.Controller != null)
         {
             LevelManager.Ins.Controller.RefreshTraySlotPositions();
@@ -540,46 +548,41 @@ public class UICanvasGameplay : UICanvas
         t.localScale = Vector3.one;
     }
 
-    private void Update()
+    public void SyncTraySlotWorldPositions()
     {
         ColonyTray tray = LevelManager.Ins?.Controller?.Tray;
-        for (int i = 0; i < imgTraySlots.Count; i++)
+        LevelController levelController = LevelManager.Ins != null ? LevelManager.Ins.Controller : null;
+        if (tray == null || tray.Slots == null) return;
+
+        Camera uiCam = Camera.main;
+        Vector3 rayDir = (uiCam != null && uiCam.orthographic) ? uiCam.transform.forward : Vector3.forward;
+        Vector3 upDir = (uiCam != null && uiCam.orthographic) ? uiCam.transform.up : Vector3.up;
+
+        for (int i = 0; i < imgTraySlots.Count && i < tray.Slots.Count; i++)
         {
-            if (imgTraySlots[i] == null) continue;
-            
-            ColonyController colony = tray != null && i < tray.Slots.Count ? tray.Slots[i].Colony : null;
+            if (imgTraySlots[i] == null || tray.Slots[i] == null) continue;
+
             Image slotImage = imgTraySlots[i];
-            
             TextMeshProUGUI authored = slotImage.GetComponentInChildren<TextMeshProUGUI>(true);
             if (authored != null && authored.gameObject.activeSelf) authored.gameObject.SetActive(false);
-            
-            // Keep the UI slot visible so the 3D box overlaps it
-            
-            // Sync 3D tray slot position to UI tray slot position with a vertical shift to pop out and center perfectly
-            if (tray != null && i < tray.Slots.Count)
+
+            Vector3 uiPos = slotImage.transform.position;
+            if (uiCam != null && uiCam.orthographic && Mathf.Abs(rayDir.z) > 0.001f)
             {
-                Camera uiCam = Camera.main;
-                Vector3 uiPos = imgTraySlots[i].transform.position;
-                Vector3 upDir = Vector3.up;
-                
-                if (uiCam != null && uiCam.orthographic)
-                {
-                    Vector3 rayDir = uiCam.transform.forward;
-                    if (Mathf.Abs(rayDir.z) > 0.001f)
-                    {
-                        float t = -uiPos.z / rayDir.z;
-                        uiPos = uiPos + rayDir * t;
-                    }
-                    upDir = uiCam.transform.up;
-                }
-                
-                Vector3 slotWorld = uiPos + upDir * 0.12f;
-                LevelController levelController = LevelManager.Ins != null ? LevelManager.Ins.Controller : null;
-                if (levelController != null && levelController.Board != null)
-                    slotWorld = levelController.Board.ProjectToGameplayPlane(slotWorld);
-                tray.Slots[i].transform.position = slotWorld;
+                float t = -uiPos.z / rayDir.z;
+                uiPos = uiPos + rayDir * t;
             }
+
+            Vector3 slotWorld = uiPos + upDir * 0.12f;
+            if (levelController != null && levelController.Board != null)
+                slotWorld = levelController.Board.ProjectToGameplayPlane(slotWorld);
+            tray.Slots[i].transform.position = slotWorld;
         }
+    }
+
+    private void Update()
+    {
+        SyncTraySlotWorldPositions();
     }
 
     private void OnLevelLoaded(int index, LevelData unused)
