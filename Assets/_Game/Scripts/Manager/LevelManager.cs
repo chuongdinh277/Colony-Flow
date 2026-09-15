@@ -121,6 +121,7 @@ namespace ColonyFlow
             GameManager.ChangeState(GameState.Victory);
             if (SoundManager.Ins != null) SoundManager.Ins.PlayGameFx(GameFxID.Win);
             LevelWon?.Invoke(CurrentLevelIndex);
+            UICanvasVictory.Show();
         }
 
         private void OnFailed()
@@ -128,6 +129,7 @@ namespace ColonyFlow
             GameManager.ChangeState(GameState.Failed);
             if (SoundManager.Ins != null) SoundManager.Ins.PlayGameFx(GameFxID.Lose);
             LevelFailed?.Invoke(CurrentLevelIndex);
+            UICanvasLose.Show();
         }
 
         protected override void OnDestroy()

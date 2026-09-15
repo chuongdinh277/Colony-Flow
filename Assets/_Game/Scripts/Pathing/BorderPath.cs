@@ -8,8 +8,8 @@ namespace ColonyFlow
     {
         // The ant lane belongs to the UI frame, not to the artwork silhouette.
         // Keep extra vertical breathing room between the picture and that lane.
-        [SerializeField, Min(1)] private int horizontalMarginCells = 1;
-        [SerializeField, Min(1)] private int verticalMarginCells = 2;
+        [SerializeField, Min(1)] private int horizontalMarginCells = 3;
+        [SerializeField, Min(1)] private int verticalMarginCells = 3;
         [SerializeField, Min(0.5f)] private float entranceOffsetCells = 2.4f;
         private readonly List<Vector2Int> points = new();
         private readonly Dictionary<Vector2Int, int> indexByPoint = new();
@@ -21,13 +21,39 @@ namespace ColonyFlow
         private Vector2 worldMin;
         private Vector2 worldMax;
 
+        private int activeHorizontalMargin;
+        private int activeVerticalMargin;
+
+        public int Revision { get; private set; }
         public IReadOnlyList<Vector2Int> Points => points;
-        public int HorizontalMarginCells => horizontalMarginCells;
-        public int VerticalMarginCells => verticalMarginCells;
+        public int HorizontalMarginCells => activeHorizontalMargin > 0 ? activeHorizontalMargin : horizontalMarginCells;
+        public int VerticalMarginCells => activeVerticalMargin > 0 ? activeVerticalMargin : verticalMarginCells;
+        
+        public int BaseHorizontalMarginCells => horizontalMarginCells;
+        public int BaseVerticalMarginCells => verticalMarginCells;
+
         public int SpawnIndex { get; private set; }
-        public Vector3 EntranceWorldPosition => points.Count == 0
-            ? transform.position
-            : ToWorld(points[SpawnIndex]) + Vector3.down * board.CellSize * entranceOffsetCells;
+        
+        public Vector3? CustomEntranceWorldPosition { get; set; }
+        
+        public Vector3 EntranceWorldPosition
+        {
+            get
+            {
+                if (CustomEntranceWorldPosition.HasValue) return CustomEntranceWorldPosition.Value;
+                return points.Count == 0
+                    ? transform.position
+                    : ToWorld(points[SpawnIndex]) + Vector3.down * board.CellSize * entranceOffsetCells;
+            }
+        }
+
+        public void SetDynamicMargins(int hMargin, int vMargin)
+        {
+            if (activeHorizontalMargin == hMargin && activeVerticalMargin == vMargin) return;
+            activeHorizontalMargin = hMargin;
+            activeVerticalMargin = vMargin;
+            if (board != null) Build(board);
+        }
 
         public void Build(PixelBoard pixelBoard)
         {
@@ -36,10 +62,12 @@ namespace ColonyFlow
             indexByPoint.Clear();
             routeCache.Clear();
             
-            minX = -horizontalMarginCells;
-            minY = -verticalMarginCells;
-            maxX = board.Width - 1 + horizontalMarginCells;
-            maxY = board.Height - 1 + verticalMarginCells;
+            minX = -HorizontalMarginCells;
+            minY = -VerticalMarginCells;
+            maxX = board.Width - 1 + HorizontalMarginCells;
+            maxY = board.Height - 1 + VerticalMarginCells;
+            
+            Revision++;
 
             for (int x = minX; x <= maxX; x++) points.Add(new Vector2Int(x, minY));
             for (int y = minY + 1; y <= maxY; y++) points.Add(new Vector2Int(maxX, y));
@@ -64,6 +92,7 @@ namespace ColonyFlow
             worldMin = min;
             worldMax = max;
             hasWorldBounds = max.x > min.x && max.y > min.y;
+            Revision++;
             routeCache.Clear();
         }
 
@@ -78,6 +107,63 @@ namespace ColonyFlow
             int clockwise = (toIndex - fromIndex + points.Count) % points.Count;
             return Mathf.Min(clockwise, points.Count - clockwise);
         }
+
+        public bool TryGetWorldIndex(Vector3 worldPosition, out int index)
+        {
+            index = -1;
+            if (points.Count == 0) return false;
+            for (int i = 0; i < points.Count; i++)
+            {
+                if ((ToWorld(points[i]) - worldPosition).sqrMagnitude < 0.0001f)
+                {
+                    index = i;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Finds the first point on the bottom border (y == minY) reached by the shortest route from startIndex.
+        /// </summary>
+        public int FindFirstBottomContactIndex(int startIndex)
+        {
+            if (points.Count == 0) return -1;
+            if (points[startIndex].y == minY) return startIndex;
+
+            int count = points.Count;
+            // Scan forward
+            int forwardSteps = 0;
+            int forwardIndex = startIndex;
+            while (forwardSteps < count && points[forwardIndex].y != minY)
+            {
+                forwardIndex = (forwardIndex + 1) % count;
+                forwardSteps++;
+            }
+
+            // Scan backward
+            int backwardSteps = 0;
+            int backwardIndex = startIndex;
+            while (backwardSteps < count && points[backwardIndex].y != minY)
+            {
+                backwardIndex = (backwardIndex - 1 + count) % count;
+                backwardSteps++;
+            }
+
+            return forwardSteps <= backwardSteps ? forwardIndex : backwardIndex;
+        }
+
+        public List<Vector3> BuildShortestWorldRouteToBottomContact(int startIndex, out int bottomIndex)
+        {
+            bottomIndex = FindFirstBottomContactIndex(startIndex);
+            if (bottomIndex < 0 || bottomIndex == startIndex)
+            {
+                return new List<Vector3> { ToWorld(points[startIndex]) };
+            }
+            return BuildShortestWorldRoute(startIndex, bottomIndex);
+        }
+
+        public int FindNearestBottomIndex(int startIndex) => FindFirstBottomContactIndex(startIndex);
 
         public int FindNearestIndex(Vector2Int gridPosition)
         {
@@ -138,14 +224,16 @@ namespace ColonyFlow
             if (!hasWorldBounds) return board.GridToWorld(gridPosition);
 
             float tx = Mathf.InverseLerp(minX, maxX, gridPosition.x);
-            float ty = Mathf.InverseLerp(minY, maxY, gridPosition.y);
             Vector3 boardWorld = board.GridToWorld(gridPosition);
             if (gridPosition.y == minY || gridPosition.y == maxY)
                 return new Vector3(Mathf.Lerp(worldMin.x, worldMax.x, tx),
                     gridPosition.y == minY ? worldMin.y : worldMax.y, boardWorld.z);
             if (gridPosition.x == minX || gridPosition.x == maxX)
+                // Use board.GridToWorld Y so the Y exactly matches the inner margin cells
+                // for the same row — prevents the vertical jolt when the border walk hands
+                // off to the A* inner path.
                 return new Vector3(gridPosition.x == minX ? worldMin.x : worldMax.x,
-                    Mathf.Lerp(worldMin.y, worldMax.y, ty), boardWorld.z);
+                    boardWorld.y, boardWorld.z);
             return boardWorld;
         }
         public Vector2Int GetPoint(int index) => points[index];
@@ -164,6 +252,13 @@ namespace ColonyFlow
             Gizmos.color = Color.yellow;
             for (int i = 0; i < points.Count; i++)
                 Gizmos.DrawLine(ToWorld(points[i]), ToWorld(points[(i + 1) % points.Count]));
+
+            // Draw Cave Avoidance Zone Gizmo (Cyan box) so developer can see the exact cave boundary
+            Vector3 entrance = EntranceWorldPosition;
+            Vector3 caveCenter = new(entrance.x + 0.05f, entrance.y + 0.05f, entrance.z);
+            Vector3 caveSize = new(3.2f, 2.0f, 0.1f);
+            Gizmos.color = Color.cyan;
+            Gizmos.DrawWireCube(caveCenter, caveSize);
         }
     }
 }

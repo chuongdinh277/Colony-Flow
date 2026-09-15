@@ -28,6 +28,43 @@ namespace ColonyFlow
             }
         }
 
+        public int ColumnCount => columns.Count;
+        public int MaxRowCount
+        {
+            get
+            {
+                int max = 0;
+                for (int i = 0; i < columns.Count; i++)
+                    if (columns[i].Count > max) max = columns[i].Count;
+                return max;
+            }
+        }
+
+        public ColonyTile GetTileAtBottomLeftCoordinate(int col, int row)
+        {
+            if (col < 0 || col >= columns.Count) return null;
+            List<ColonyTile> column = columns[col];
+            int indexInColumn = column.Count - 1 - row;
+            if (indexInColumn < 0 || indexInColumn >= column.Count) return null;
+            return column[indexInColumn];
+        }
+
+        public bool TryGetBoxCoordinate(ColonyTile tile, out Vector2Int coord)
+        {
+            coord = new Vector2Int(-1, -1);
+            for (int col = 0; col < columns.Count; col++)
+            {
+                int idx = columns[col].IndexOf(tile);
+                if (idx >= 0)
+                {
+                    int row = columns[col].Count - 1 - idx;
+                    coord = new Vector2Int(col, row);
+                    return true;
+                }
+            }
+            return false;
+        }
+
         public void Build(LevelData data, Camera camera)
         {
             level = data;

@@ -6,30 +6,6 @@ namespace ColonyFlow
 {
     public sealed class AntRouteService : MonoBehaviour
     {
-        private readonly struct Node : IComparable<Node>
-        {
-            public readonly Vector2Int Position;
-            public readonly int G;
-            public readonly int F;
-            private readonly int sequence;
-
-            public Node(Vector2Int position, int g, int f, int sequence)
-            {
-                Position = position;
-                G = g;
-                F = f;
-                this.sequence = sequence;
-            }
-
-            public int CompareTo(Node other)
-            {
-                int result = F.CompareTo(other.F);
-                if (result == 0) result = G.CompareTo(other.G);
-                if (result == 0) result = sequence.CompareTo(other.sequence);
-                return result;
-            }
-        }
-
         private sealed class CachedRoute
         {
             public int revision;
@@ -38,39 +14,20 @@ namespace ColonyFlow
 
         [SerializeField] private PixelBoard board;
         [SerializeField] private BorderPath border;
-        private readonly SortedSet<Node> open = new();
-        private readonly Dictionary<Vector2Int, Vector2Int> parent = new();
-        private readonly Dictionary<Vector2Int, int> scores = new();
         private readonly Dictionary<long, CachedRoute> cache = new();
-        private readonly List<Vector2Int> reversePath = new();
-        private readonly Dictionary<Vector2Int, int> bfsDistance = new();
-        private readonly Dictionary<Vector2Int, int> bfsBorderIndex = new();
-        private readonly Queue<Vector2Int> bfsQueue = new();
-        private int bfsRevision = -1;
-        private int budgetFrame = -1;
-        private bool searchedThisFrame;
-        private int sequence;
-        private int minX, minY, maxX, maxY;
+        private readonly Dictionary<int, CachedRoute> returnToEntranceCache = new();
+
+        private int MinX => border != null ? -border.HorizontalMarginCells : 0;
+        private int MaxX => border != null && board != null ? board.Width - 1 + border.HorizontalMarginCells : 0;
+        private int MinY => border != null ? -border.VerticalMarginCells : 0;
+        private int MaxY => border != null && board != null ? board.Height - 1 + border.VerticalMarginCells : 0;
 
         public void Initialize(PixelBoard pixelBoard, BorderPath borderPath)
         {
             board = pixelBoard;
             border = borderPath;
             cache.Clear();
-            bfsDistance.Clear();
-            bfsBorderIndex.Clear();
-            bfsRevision = -1;
-            budgetFrame = -1;
-            if (border.Points.Count == 0) return;
-            minX = maxX = border.Points[0].x;
-            minY = maxY = border.Points[0].y;
-            foreach (Vector2Int point in border.Points)
-            {
-                minX = Mathf.Min(minX, point.x);
-                minY = Mathf.Min(minY, point.y);
-                maxX = Mathf.Max(maxX, point.x);
-                maxY = Mathf.Max(maxY, point.y);
-            }
+            returnToEntranceCache.Clear();
         }
 
         public Vector3 EntranceWorldPosition => border != null ? border.EntranceWorldPosition : transform.position;
@@ -82,68 +39,37 @@ namespace ColonyFlow
             bestRoute = null;
             if (board == null || border == null) return false;
 
-            BuildBfsDistanceField();
             List<PixelCell> candidates = board.GetAvailableTargets(colorIndex);
             candidates.Sort(CompareBottomLeftFirst);
-            int entryIndex = border.FindNearestWorldIndex(colonySpawnWorld);
-            int bestExitIndex = -1;
+
             foreach (PixelCell candidate in candidates)
             {
-                int candidateDistance = int.MaxValue;
-                int candidateBorderDistance = int.MaxValue;
-                int candidateExitIndex = -1;
-                foreach (Vector2Int direction in GridDirections.Four)
+                if (TryBuildRoute(candidate, colonySpawnWorld, out bestRoute))
                 {
-                    Vector2Int neighbor = candidate.Position + direction;
-                    if (!bfsDistance.TryGetValue(neighbor, out int innerDistance)) continue;
-                    int borderIndex = bfsBorderIndex[neighbor];
-                    int borderDistance = border.GetDistance(entryIndex, borderIndex);
-                    if (innerDistance > candidateDistance ||
-                        (innerDistance == candidateDistance && borderDistance >= candidateBorderDistance)) continue;
-                    candidateDistance = innerDistance;
-                    candidateBorderDistance = borderDistance;
-                    candidateExitIndex = borderIndex;
+                    bestTarget = candidate;
+                    return true;
                 }
-
-                // Target priority is gameplay-defined: bottom-to-top, then
-                // left-to-right. Path length only chooses this target's exit.
-                if (candidateExitIndex < 0) continue;
-                bestTarget = candidate;
-                bestExitIndex = candidateExitIndex;
-                break;
             }
 
-            if (bestTarget == null) return false;
-            return TryBuildRoute(bestTarget, colonySpawnWorld, bestExitIndex, out bestRoute);
+            return false;
         }
 
         public bool TryBuildRoute(PixelCell target, Vector3 colonySpawnWorld, out List<Vector3> worldRoute)
         {
-            if (target == null || board == null || border == null)
+            worldRoute = null;
+            if (target == null || target.IsDestroyed || board == null || border == null) return false;
+
+            int entryIndex = border.FindNearestWorldIndex(colonySpawnWorld);
+
+            if (!TryFindPathToPictureEdge(target, entryIndex,
+                    out int exitIndex, out Vector2Int edgeCell, out List<Vector2Int> pathFromEdge))
             {
-                worldRoute = null;
                 return false;
             }
-            BuildBfsDistanceField();
-            int exitIndex = -1;
-            int bestDistance = int.MaxValue;
-            foreach (Vector2Int direction in GridDirections.Four)
-            {
-                Vector2Int neighbor = target.Position + direction;
-                if (!bfsDistance.TryGetValue(neighbor, out int distance) || distance >= bestDistance) continue;
-                bestDistance = distance;
-                exitIndex = bfsBorderIndex[neighbor];
-            }
-            return TryBuildRoute(target, colonySpawnWorld, exitIndex, out worldRoute);
-        }
 
-        private bool TryBuildRoute(PixelCell target, Vector3 colonySpawnWorld, int exitIndex,
-            out List<Vector3> worldRoute)
-        {
-            worldRoute = null;
-            if (target == null || target.IsDestroyed || board == null || border == null || exitIndex < 0) return false;
-            int entryIndex = border.FindNearestWorldIndex(colonySpawnWorld);
-            long cacheKey = ((long)entryIndex << 32) | ((long)(ushort)target.Position.x << 16) | (ushort)target.Position.y;
+            int routeEntry = CaveAdjustedEntryIndex(colonySpawnWorld, exitIndex, entryIndex);
+
+            long cacheKey = ((long)routeEntry << 32) | ((long)(ushort)target.Position.x << 16) | (ushort)target.Position.y;
             if (cache.TryGetValue(cacheKey, out CachedRoute saved) && saved.revision == board.Revision)
             {
                 if (saved.route == null) return false;
@@ -151,13 +77,20 @@ namespace ColonyFlow
                 return true;
             }
 
-            RefreshBudget();
-            if (searchedThisFrame) return false;
-            searchedThisFrame = true;
-            bool found = RunAStar(target, entryIndex, exitIndex, out List<Vector3> route);
-            cache[cacheKey] = new CachedRoute { revision = board.Revision, route = route };
-            if (!found) return false;
-            worldRoute = new List<Vector3>(route);
+            // 1. Walk along the outer frame border from routeEntry to exitIndex
+            worldRoute = border.BuildShortestWorldRoute(routeEntry, exitIndex);
+
+            // 2. Walk straight and perpendicularly from the border point into the picture edge cell
+            Vector3 edgeWorld = board.GridToWorld(edgeCell);
+            worldRoute.Add(edgeWorld);
+
+            // 3. Walk through the walkable cells inside the picture to the target pixel
+            for (int i = 1; i < pathFromEdge.Count; i++)
+            {
+                worldRoute.Add(board.GridToWorld(pathFromEdge[i]));
+            }
+
+            cache[cacheKey] = new CachedRoute { revision = board.Revision, route = worldRoute };
             return true;
         }
 
@@ -167,137 +100,232 @@ namespace ColonyFlow
             return candidates.Count > 0;
         }
 
-        public List<Vector3> BuildReturnToEntranceRoute(Vector3 colonySpawnWorld)
+        public bool TryFindExitWaypoint(IReadOnlyList<Vector3> route,
+            out int routeWaypointIndex, out int borderIndex)
         {
-            if (board == null || border == null) return null;
-            int entryIndex = border.FindNearestWorldIndex(colonySpawnWorld);
-            List<Vector3> result = border.BuildShortestWorldRoute(entryIndex, border.SpawnIndex);
-            result.Add(board.ProjectToGameplayPlane(border.EntranceWorldPosition));
-            return result;
+            routeWaypointIndex = -1;
+            borderIndex = -1;
+            if (route == null || border == null) return false;
+            for (int i = 0; i < route.Count; i++)
+            {
+                if (!border.TryGetWorldIndex(route[i], out int currentBorderIndex)) break;
+                routeWaypointIndex = i;
+                borderIndex = currentBorderIndex;
+            }
+            return routeWaypointIndex >= 0 && borderIndex >= 0;
         }
 
-        private void BuildBfsDistanceField()
+        public List<Vector3> BuildReturnToEntranceRoute(int exitIndex)
         {
-            if (bfsRevision == board.Revision) return;
-            bfsRevision = board.Revision;
-            bfsDistance.Clear();
-            bfsBorderIndex.Clear();
-            bfsQueue.Clear();
-            for (int i = 0; i < border.Points.Count; i++)
+            if (returnToEntranceCache.TryGetValue(exitIndex, out CachedRoute saved) &&
+                saved.revision == border.Revision) return new List<Vector3>(saved.route);
+            
+            // Reaches the first contact point on the bottom border, then cuts diagonally straight into the cave!
+            List<Vector3> result = border.BuildShortestWorldRouteToBottomContact(exitIndex, out int bottomIndex);
+            
+            // From the first bottom border contact point, ant heads diagonally straight to the cave entrance!
+            Vector3 caveEntrance = board.ProjectToGameplayPlane(border.EntranceWorldPosition);
+            if (result.Count == 0 || (result[result.Count - 1] - caveEntrance).sqrMagnitude > 0.0001f)
             {
-                Vector2Int point = border.GetPoint(i);
-                if (!board.IsWalkable(point) || bfsDistance.ContainsKey(point)) continue;
-                bfsDistance[point] = 0;
-                bfsBorderIndex[point] = i;
-                bfsQueue.Enqueue(point);
+                result.Add(caveEntrance);
             }
-
-            while (bfsQueue.Count > 0)
-            {
-                Vector2Int current = bfsQueue.Dequeue();
-                int nextDistance = bfsDistance[current] + 1;
-                foreach (Vector2Int direction in GridDirections.Four)
-                {
-                    Vector2Int next = current + direction;
-                    if (next.x < minX || next.x > maxX || next.y < minY || next.y > maxY) continue;
-                    if (!board.IsWalkable(next) || bfsDistance.ContainsKey(next)) continue;
-                    bfsDistance[next] = nextDistance;
-                    bfsBorderIndex[next] = bfsBorderIndex[current];
-                    bfsQueue.Enqueue(next);
-                }
-            }
+            returnToEntranceCache[exitIndex] = new CachedRoute { revision = border.Revision, route = result };
+            return new List<Vector3>(result);
         }
 
-        private bool RunAStar(PixelCell target, int entryIndex, int exitIndex, out List<Vector3> route)
+        /// <summary>
+        /// Builds the path from a colony box/slot up to the border entry point (bottom border).
+        /// If the straight path intersects the cave, veers around the side of the cave (S/Z curve).
+        /// </summary>
+        public List<Vector3> BuildSlotToBorderRoute(Vector3 spawnWorld, Vector3 borderTarget)
         {
-            route = null;
-            open.Clear();
-            sequence = 0;
-            parent.Clear();
-            scores.Clear();
-            foreach (Vector2Int direction in GridDirections.Four)
+            var waypoints = new List<Vector3> { spawnWorld };
+            if (border == null || board == null) return waypoints;
+
+            Vector3 entrance = border.EntranceWorldPosition;
+            // The cave art on the backdrop spans roughly from x = -1.55f to +1.65f (covering
+            // the stone rim, left leaves, and the tilted wooden lid on the right) and vertically
+            // about 1.0f in each direction from the entrance center.
+            float caveLeft   = entrance.x - 1.55f;
+            float caveRight  = entrance.x + 1.65f;
+            float caveBottom = entrance.y - 0.95f;
+            float caveTop    = entrance.y + 1.05f;
+
+            float borderY = borderTarget.y;
+            bool intersectsCaveHorizontally = spawnWorld.x >= caveLeft && spawnWorld.x <= caveRight;
+            bool spawnIsBelowCave  = spawnWorld.y < caveBottom;
+            bool borderIsAboveCave = borderY > caveTop;
+
+            if (intersectsCaveHorizontally && spawnIsBelowCave && borderIsAboveCave)
             {
-                Vector2Int start = target.Position + direction;
-                if (!board.IsWalkable(start) || scores.ContainsKey(start)) continue;
-                scores[start] = 0;
-                parent[start] = start;
-                open.Add(new Node(start, 0, Manhattan(start, border.GetPoint(exitIndex)), sequence++));
+                // Veer toward the side closer to borderTarget (which is now the cave-adjusted
+                // entry, so borderTarget.x ≈ avoidX — no horizontal snap-back at frame bottom).
+                float avoidX = borderTarget.x <= entrance.x ? caveLeft : caveRight;
+                waypoints.Add(new Vector3(spawnWorld.x, caveBottom, spawnWorld.z));
+                waypoints.Add(new Vector3(avoidX,       caveBottom, spawnWorld.z));
+                waypoints.Add(new Vector3(avoidX,       caveTop,    spawnWorld.z));
+                waypoints.Add(new Vector3(avoidX,       borderY,    spawnWorld.z));
+                // No snap-back: border walk entry is already at avoidX side.
+            }
+            else
+            {
+                // Straight up to bottom border level, then horizontal to entry point.
+                Vector3 corner = new(spawnWorld.x, borderY, spawnWorld.z);
+                if ((corner - spawnWorld).sqrMagnitude   > 0.0001f) waypoints.Add(corner);
+                if ((corner - borderTarget).sqrMagnitude > 0.0001f) waypoints.Add(new Vector3(borderTarget.x, borderY, spawnWorld.z));
             }
 
-            Vector2Int goal = default;
-            int borderIndex = -1;
-            int bestInnerDistance = int.MaxValue;
-            int bestTotalDistance = int.MaxValue;
-            while (open.Count > 0)
+            return waypoints;
+        }
+
+        /// <summary>
+        /// Finds the shortest walkable BFS path from the target pixel to the boundary of the picture.
+        /// From the picture edge cell, projects straight out perpendicularly to the 4 outer border sides,
+        /// picks the closest outer border, and returns the exit border index and the inner path.
+        /// </summary>
+        private bool TryFindPathToPictureEdge(PixelCell target, int entryIndex,
+            out int exitIndex, out Vector2Int edgeCell, out List<Vector2Int> pathFromEdgeToTarget)
+        {
+            exitIndex = -1;
+            edgeCell = default;
+            pathFromEdgeToTarget = null;
+            if (target == null || target.IsDestroyed || board == null || border == null) return false;
+
+            int boardW = board.Width;
+            int boardH = board.Height;
+
+            bool IsOutsidePicture(Vector2Int pos) =>
+                pos.x < 0 || pos.x >= boardW || pos.y < 0 || pos.y >= boardH;
+
+            // Checks all outward-facing directions from a picture edge cell and projects
+            // straight out to the corresponding outer frame border. Picks the closest border.
+            bool TryGetBorderProjection(Vector2Int cell, out int bestBorderIdx, out int minProjDist)
             {
-                Node current = open.Min;
-                open.Remove(current);
-                if (!scores.TryGetValue(current.Position, out int known) || known != current.G) continue;
-                if (current.F > bestTotalDistance) break;
-                if (current.Position == border.GetPoint(exitIndex))
+                bestBorderIdx = -1;
+                minProjDist = int.MaxValue;
+                int bestBorderDistance = int.MaxValue;
+
+                foreach (Vector2Int dir in GridDirections.Four)
                 {
-                    int borderDistance = border.GetDistance(entryIndex, exitIndex);
-                    int totalDistance = current.G + borderDistance;
-                    if (totalDistance < bestTotalDistance || (totalDistance == bestTotalDistance && current.G < bestInnerDistance))
+                    Vector2Int outside = cell + dir;
+                    if (!IsOutsidePicture(outside)) continue;
+
+                    Vector2Int borderPt;
+                    int projDist;
+                    if (dir == Vector2Int.left)
                     {
-                        goal = current.Position;
-                        borderIndex = exitIndex;
-                        bestInnerDistance = current.G;
-                        bestTotalDistance = totalDistance;
+                        borderPt = new Vector2Int(MinX, cell.y);
+                        projDist = cell.x - MinX;
                     }
-                    continue;
+                    else if (dir == Vector2Int.right)
+                    {
+                        borderPt = new Vector2Int(MaxX, cell.y);
+                        projDist = MaxX - cell.x;
+                    }
+                    else if (dir == Vector2Int.down)
+                    {
+                        borderPt = new Vector2Int(cell.x, MinY);
+                        projDist = cell.y - MinY;
+                    }
+                    else // up
+                    {
+                        borderPt = new Vector2Int(cell.x, MaxY);
+                        projDist = MaxY - cell.y;
+                    }
+
+                    if (!border.TryGetIndex(borderPt, out int bIdx)) continue;
+                    int bDist = border.GetDistance(entryIndex, bIdx);
+
+                    if (projDist < minProjDist || (projDist == minProjDist && bDist < bestBorderDistance))
+                    {
+                        minProjDist = projDist;
+                        bestBorderDistance = bDist;
+                        bestBorderIdx = bIdx;
+                    }
                 }
 
-                foreach (Vector2Int direction in GridDirections.Four)
+                return bestBorderIdx >= 0;
+            }
+
+            // Case 1: Target pixel is already at the boundary of the picture
+            if (TryGetBorderProjection(target.Position, out int directBorderIdx, out _))
+            {
+                edgeCell = target.Position;
+                exitIndex = directBorderIdx;
+                pathFromEdgeToTarget = new List<Vector2Int> { target.Position };
+                return true;
+            }
+
+            // Case 2: Target is inside the picture; run BFS through walkable cells inside the picture
+            // to find the shortest path to an edge cell that opens to the outside.
+            var queue = new Queue<Vector2Int>();
+            var parentMap = new Dictionary<Vector2Int, Vector2Int>();
+            var visited = new HashSet<Vector2Int>();
+
+            foreach (Vector2Int dir in GridDirections.Four)
+            {
+                Vector2Int start = target.Position + dir;
+                if (IsOutsidePicture(start))
                 {
-                    Vector2Int next = current.Position + direction;
-                    if (next.x < minX || next.x > maxX || next.y < minY || next.y > maxY) continue;
-                    if (!board.IsWalkable(next)) continue;
-                    int nextScore = current.G + 1;
-                    if (scores.TryGetValue(next, out int oldScore) && nextScore >= oldScore) continue;
-                    scores[next] = nextScore;
-                    parent[next] = current.Position;
-                    open.Add(new Node(next, nextScore,
-                        nextScore + Manhattan(next, border.GetPoint(exitIndex)), sequence++));
+                    if (TryGetBorderProjection(target.Position, out int bIdx, out _))
+                    {
+                        edgeCell = target.Position;
+                        exitIndex = bIdx;
+                        pathFromEdgeToTarget = new List<Vector2Int> { target.Position };
+                        return true;
+                    }
+                }
+                else if (board.IsWalkable(start))
+                {
+                    queue.Enqueue(start);
+                    parentMap[start] = target.Position;
+                    visited.Add(start);
                 }
             }
-            if (borderIndex < 0) return false;
 
-            reversePath.Clear();
-            Vector2Int step = goal;
-            reversePath.Add(step);
-            while (parent[step] != step)
+            Vector2Int foundEdgeCell = default;
+            int foundExitIndex = -1;
+
+            while (queue.Count > 0)
             {
-                step = parent[step];
-                reversePath.Add(step);
+                Vector2Int curr = queue.Dequeue();
+
+                if (TryGetBorderProjection(curr, out int bIdx, out _))
+                {
+                    foundEdgeCell = curr;
+                    foundExitIndex = bIdx;
+                    break;
+                }
+
+                foreach (Vector2Int dir in GridDirections.Four)
+                {
+                    Vector2Int next = curr + dir;
+                    if (IsOutsidePicture(next)) continue;
+                    if (!board.IsWalkable(next) || visited.Contains(next)) continue;
+
+                    visited.Add(next);
+                    parentMap[next] = curr;
+                    queue.Enqueue(next);
+                }
             }
 
-            route = border.BuildShortestWorldRoute(entryIndex, borderIndex);
-            if (reversePath.Count > 1)
+            if (foundExitIndex < 0) return false;
+
+            edgeCell = foundEdgeCell;
+            exitIndex = foundExitIndex;
+
+            // Trace path from edgeCell back to target.Position
+            pathFromEdgeToTarget = new List<Vector2Int>();
+            Vector2Int step = edgeCell;
+            while (step != target.Position)
             {
-                Vector3 borderWorld = route[route.Count - 1];
-                Vector3 firstInnerWorld = board.GridToWorld(reversePath[1]);
-                Vector2Int exit = border.GetPoint(borderIndex);
-                Vector3 corner = exit.x == minX || exit.x == maxX
-                    ? new Vector3(borderWorld.x, firstInnerWorld.y, borderWorld.z)
-                    : new Vector3(firstInnerWorld.x, borderWorld.y, borderWorld.z);
-                if ((corner - borderWorld).sqrMagnitude > 0.000001f &&
-                    (corner - firstInnerWorld).sqrMagnitude > 0.000001f) route.Add(corner);
+                pathFromEdgeToTarget.Add(step);
+                step = parentMap[step];
             }
-            for (int i = 1; i < reversePath.Count; i++) route.Add(board.GridToWorld(reversePath[i]));
-            route.Add(board.GridToWorld(target.Position));
+            pathFromEdgeToTarget.Add(target.Position);
+
             return true;
         }
-
-        private int Heuristic(Vector2Int point)
-        {
-            int dx = Mathf.Min(Mathf.Abs(point.x - minX), Mathf.Abs(maxX - point.x));
-            int dy = Mathf.Min(Mathf.Abs(point.y - minY), Mathf.Abs(maxY - point.y));
-            return Mathf.Min(dx, dy);
-        }
-
-        private static int Manhattan(Vector2Int a, Vector2Int b) =>
-            Mathf.Abs(a.x - b.x) + Mathf.Abs(a.y - b.y);
 
         private static int CompareBottomLeftFirst(PixelCell a, PixelCell b)
         {
@@ -305,11 +333,32 @@ namespace ColonyFlow
             return row != 0 ? row : a.Position.x.CompareTo(b.Position.x);
         }
 
-        private void RefreshBudget()
+        /// <summary>
+        /// When the spawn position is directly above/below the cave opening, the ant must veer
+        /// sideways to avoid it.  Returns the border entry index on the veer side so the border
+        /// walk starts exactly there — eliminating the horizontal snap-back that would otherwise
+        /// occur at the frame-bottom level.
+        /// Returns <paramref name="defaultEntry"/> unchanged if no adjustment is needed.
+        /// </summary>
+        private int CaveAdjustedEntryIndex(Vector3 spawnWorld, int exitIndex, int defaultEntry)
         {
-            if (budgetFrame == Time.frameCount) return;
-            budgetFrame = Time.frameCount;
-            searchedThisFrame = false;
+            if (border == null || board == null) return defaultEntry;
+            Vector3 entrance = border.EntranceWorldPosition;
+            if (spawnWorld.y >= entrance.y) return defaultEntry; // spawn is not below the frame
+
+            float caveLeft  = entrance.x - 1.55f;
+            float caveRight = entrance.x + 1.65f;
+
+            if (spawnWorld.x < caveLeft || spawnWorld.x > caveRight) return defaultEntry; // outside cave zone
+
+            // Determine veer direction: same rule as BuildSlotToBorderRoute —
+            // toward the side that's closer to the exit (avoids backtracking).
+            Vector3 exitWorld = border.ToWorld(border.GetPoint(exitIndex));
+            float avoidX = exitWorld.x <= entrance.x ? caveLeft : caveRight;
+
+            // Return the bottom-border point nearest to avoidX.
+            return border.FindNearestWorldIndex(new Vector3(avoidX, entrance.y, spawnWorld.z));
         }
+
     }
 }

@@ -291,7 +291,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: 0, y: 337}
+  m_AnchoredPosition: {x: 0, y: 369}
   m_SizeDelta: {x: 860, y: 750}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!222 &2995010265495182459
@@ -381,6 +381,8 @@ MonoBehaviour:
   isHandlingRabbitEars: 0
   isWidescreenProcessing: 0
   popups: []
+  pictureFrame: {fileID: 0}
+  pictureInnerPadding: 0.045
   txtLevel: {fileID: 4665991257152555098}
   btnPause: {fileID: 8863324859431446349}
   btnSpeed: {fileID: 4587129488237761258}
@@ -1184,8 +1186,8 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: 0, y: -120}
-  m_SizeDelta: {x: 300, y: 150}
+  m_AnchoredPosition: {x: 0, y: -66}
+  m_SizeDelta: {x: 200, y: 120}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!222 &1725503189307204887
 CanvasRenderer:

@@ -88,7 +88,8 @@ namespace ColonyFlow
         public bool TryCollectPixel(PixelCell cell, AntAgent ant, out PixelCellView collectedView)
         {
             collectedView = null;
-            if (cell == null || cell.IsDestroyed || (cell.IsReserved && cell.ReservedBy != ant)) return false;
+            if (cell == null || cell.IsDestroyed ||
+                (cell.IsReserved && !ReferenceEquals(cell.ReservedBy, ant))) return false;
             collectedView = cell.Collect();
             liveCells.Remove(cell);
             exposedCacheDirty = true;

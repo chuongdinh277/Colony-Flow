@@ -133,18 +133,29 @@ public class UICanvasGameSetting : UICanvas
 
     private void OnRetryClicked()
     {
-        Time.timeScale = 1;
-        if (LevelManager.Ins != null)
+        if (GameManager.Ins != null)
         {
-            LevelManager.Ins.ReloadLevel();
+            GameManager.Ins.ResetMatch(false);
+        }
+        else
+        {
+            Time.timeScale = 1f;
+            if (LevelManager.Ins != null)
+            {
+                LevelManager.Ins.ReloadLevel();
+            }
         }
         CloseDirectly();
     }
 
     private void OnHomeClicked()
     {
-        Time.timeScale = 1;
-        if (GameManager.Ins != null) GameManager.ChangeState(GameState.MainMenu);
+        if (GameManager.Ins != null)
+        {
+            GameManager.Ins.GameSpeedScale = 1f;
+            GameManager.ChangeState(GameState.MainMenu);
+        }
+        Time.timeScale = 1f;
         
         // Hide Gameplay UI if open
         if (UIManager.Ins != null) UIManager.Ins.CloseUI<UICanvasGameplay>();

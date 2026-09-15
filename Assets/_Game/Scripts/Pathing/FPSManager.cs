@@ -16,7 +16,6 @@ namespace ColonyFlow
         }
 
         private readonly Queue<Request> requests = new();
-        private readonly HashSet<object> queuedOwners = new();
         private AntRouteService routeService;
 
         public int PendingCount => requests.Count;
@@ -31,7 +30,7 @@ namespace ColonyFlow
         public bool RequestRoute(object owner, int colorIndex, Vector3 spawnWorld,
             Action<PixelCell, List<Vector3>> completed)
         {
-            if (owner == null || completed == null || routeService == null || !queuedOwners.Add(owner)) return false;
+            if (owner == null || completed == null || routeService == null) return false;
             requests.Enqueue(new Request
             {
                 owner = owner,
@@ -44,20 +43,23 @@ namespace ColonyFlow
 
         private void Update()
         {
-            if (requests.Count == 0 || LastProcessedFrame == Time.frameCount) return;
-            Request request = requests.Dequeue();
-            queuedOwners.Remove(request.owner);
+            if (requests.Count == 0) return;
             LastProcessedFrame = Time.frameCount;
-            if (routeService.TryBuildBestRoute(request.colorIndex, request.spawnWorld,
-                    out PixelCell target, out List<Vector3> route))
-                request.completed(target, route);
-            else
-                request.completed(null, null);
+            int batchCount = requests.Count;
+            for (int i = 0; i < batchCount; i++)
+            {
+                Request request = requests.Dequeue();
+                if (routeService.TryBuildBestRoute(request.colorIndex, request.spawnWorld,
+                        out PixelCell target, out List<Vector3> route))
+                    request.completed(target, route);
+                else
+                    request.completed(null, null);
+            }
         }
 
         public void Cancel(object owner)
         {
-            if (owner == null || !queuedOwners.Remove(owner)) return;
+            if (owner == null) return;
             int count = requests.Count;
             for (int i = 0; i < count; i++)
             {
@@ -69,7 +71,6 @@ namespace ColonyFlow
         public void Clear()
         {
             requests.Clear();
-            queuedOwners.Clear();
             LastProcessedFrame = -1;
         }
 

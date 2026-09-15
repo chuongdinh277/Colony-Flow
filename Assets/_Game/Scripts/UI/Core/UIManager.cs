@@ -12,10 +12,28 @@ public class UIManager : Singleton<UIManager>
     private readonly Dictionary<System.Type, UICanvas> _instantiatedUIs = new Dictionary<System.Type, UICanvas>();
     private UICanvas[] _uiResources;
 
+    protected override void Awake()
+    {
+        base.Awake();
+        EnsureEventSystem();
+    }
+
+    public static void EnsureEventSystem()
+    {
+        if (UnityEngine.EventSystems.EventSystem.current != null) return;
+
+        GameObject esGo = new GameObject("EventSystem");
+        esGo.AddComponent<UnityEngine.EventSystems.EventSystem>();
+        var inputModule = esGo.AddComponent<UnityEngine.InputSystem.UI.InputSystemUIInputModule>();
+        inputModule.AssignDefaultActions();
+        Object.DontDestroyOnLoad(esGo);
+    }
+
     #region Canvas Management
 
     public T OpenUI<T>() where T : UICanvas
     {
+        EnsureEventSystem();
         T canvas = GetUI<T>();
         if (canvas == null) return null;
 

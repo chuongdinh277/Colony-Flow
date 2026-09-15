@@ -6,18 +6,27 @@ namespace ColonyFlow
 {
     public sealed class ColonyController
     {
+        private sealed class PreparedAnt
+        {
+            public PixelCell target;
+            public List<Vector3> outboundRoute;
+            public int returnWaypointIndex;
+            public List<Vector3> returnRoute;
+        }
+
         private readonly PixelBoard board;
         private readonly AntRouteService routeService;
         private readonly AntManager antManager;
         private readonly FPSManager fpsManager;
         private readonly PixelPalette palette;
         private readonly HashSet<AntAgent> activeAnts = new();
+        private readonly Queue<PreparedAnt> preparedAnts = new();
         private readonly int maxConcurrentAnts;
         private readonly Vector3 antSpawnPosition;
         private readonly Action<ColonyController> completed;
         private readonly float spawnInterval;
+        private int routePendingCount;
         private float nextSpawnTime;
-        private bool routePending;
 
         public int ColorIndex { get; }
         public int InitialCount { get; }
@@ -49,55 +58,102 @@ namespace ColonyFlow
         public void Tick()
         {
             if (!IsReady || State == ColonyState.Completed || RemainingCount <= 0) return;
-            bool scheduled = false;
-            if (!routePending && Time.time >= nextSpawnTime && activeAnts.Count < maxConcurrentAnts && activeAnts.Count < RemainingCount)
+
+            if (preparedAnts.Count > 0 && Time.time >= nextSpawnTime)
             {
-                scheduled = fpsManager != null && fpsManager.RequestRoute(this, ColorIndex, antSpawnPosition, OnRouteReady);
-                routePending = scheduled;
+                PreparedAnt prepared = preparedAnts.Dequeue();
+                if (antManager.TryLaunch(board, prepared.target, prepared.outboundRoute,
+                        prepared.returnWaypointIndex, prepared.returnRoute, palette.GetColor(ColorIndex), this,
+                        OnAntCompleted, out AntAgent ant))
+                {
+                    activeAnts.Add(ant);
+                    // Update remaining count immediately when the ant emerges from the box/cave
+                    RemainingCount--;
+                    if (RemainingCount <= 0)
+                    {
+                        State = ColonyState.Completed;
+                        fpsManager?.Cancel(this);
+                        completed?.Invoke(this);
+                        return;
+                    }
+                }
+                else
+                {
+                    prepared.target?.Release(this);
+                }
+                nextSpawnTime = Time.time + spawnInterval;
             }
-            State = activeAnts.Count == 0 && !scheduled && !routePending ? ColonyState.Blocked : ColonyState.Active;
+
+            if (State == ColonyState.Completed || RemainingCount <= 0) return;
+
+            // Maintain a small pipeline buffer (1 pending ant) so multiple colonies of the
+            // same color can draw and spawn ants concurrently without one monopolizing all targets.
+            int currentPending = preparedAnts.Count + routePendingCount;
+            int bufferCapacity = 1;
+            int needed = Mathf.Min(RemainingCount - currentPending, bufferCapacity - currentPending);
+            int availableTargets = board.GetAvailableTargets(ColorIndex).Count;
+            int requestCount = Mathf.Clamp(needed, 0, availableTargets - routePendingCount);
+
+            int scheduled = 0;
+            for (int i = 0; i < requestCount; i++)
+            {
+                if (fpsManager == null || !fpsManager.RequestRoute(this, ColorIndex, antSpawnPosition, OnRouteReady)) break;
+                routePendingCount++;
+                scheduled++;
+            }
+            State = activeAnts.Count == 0 && preparedAnts.Count == 0 && scheduled == 0 && routePendingCount == 0
+                ? ColonyState.Blocked
+                : ColonyState.Active;
         }
 
         public bool HasAvailableTarget() => routeService.MayHaveReachableTarget(ColorIndex);
 
         private void OnRouteReady(PixelCell bestTarget, List<Vector3> bestRoute)
         {
-            routePending = false;
-            nextSpawnTime = Time.time + spawnInterval;
+            routePendingCount = Mathf.Max(0, routePendingCount - 1);
             if (State == ColonyState.Completed || bestTarget == null || bestRoute == null) return;
+            if (!bestTarget.TryReserve(this)) return;
             for (int i = 0; i < bestRoute.Count; i++)
                 bestRoute[i] = board.ProjectToGameplayPlane(bestRoute[i]);
-            int returnBorderEntryIndex = 1;
+            if (!routeService.TryFindExitWaypoint(bestRoute,
+                    out int exitWaypointIndex, out int borderExitIndex))
+            {
+                bestTarget.Release(this);
+                return;
+            }
             if (bestRoute.Count > 0)
             {
                 Vector3 borderStart = bestRoute[0];
-                // Colony boxes sit below the picture. Move vertically at the
-                // colony's X until touching the bottom border, then turn and
-                // follow that border to its discrete path node.
-                Vector3 corner = new(antSpawnPosition.x, borderStart.y, borderStart.z);
-                if ((corner - antSpawnPosition).sqrMagnitude > 0.000001f &&
-                    (corner - borderStart).sqrMagnitude > 0.000001f)
+                List<Vector3> slotToBorder = routeService.BuildSlotToBorderRoute(antSpawnPosition, borderStart);
+                if (slotToBorder != null && slotToBorder.Count > 0)
                 {
-                    bestRoute.Insert(0, corner);
-                    returnBorderEntryIndex++;
+                    bestRoute.InsertRange(0, slotToBorder);
+                    exitWaypointIndex += slotToBorder.Count;
+                }
+                else
+                {
+                    bestRoute.Insert(0, antSpawnPosition);
+                    exitWaypointIndex++;
                 }
             }
-            bestRoute.Insert(0, antSpawnPosition);
-            List<Vector3> returnRoute = routeService.BuildReturnToEntranceRoute(antSpawnPosition);
-            if (!antManager.TryLaunch(board, bestTarget, bestRoute, returnBorderEntryIndex, returnRoute,
-                    palette.GetColor(ColorIndex), OnAntCompleted, out AntAgent ant)) return;
-            activeAnts.Add(ant);
+            else
+            {
+                bestRoute.Insert(0, antSpawnPosition);
+                exitWaypointIndex++;
+            }
+            List<Vector3> returnRoute = routeService.BuildReturnToEntranceRoute(borderExitIndex);
+            preparedAnts.Enqueue(new PreparedAnt
+            {
+                target = bestTarget,
+                outboundRoute = bestRoute,
+                returnWaypointIndex = exitWaypointIndex,
+                returnRoute = returnRoute
+            });
         }
 
         private void OnAntCompleted(AntAgent ant, PixelCell pixel, bool success)
         {
             activeAnts.Remove(ant);
-            if (!success) return;
-            RemainingCount--;
-            if (RemainingCount > 0) return;
-            State = ColonyState.Completed;
-            fpsManager?.Cancel(this);
-            completed?.Invoke(this);
         }
     }
 }

@@ -37,6 +37,8 @@ namespace ColonyFlow
         public PixelBoard Board => pixelBoard;
         public ColonyTray Tray => tray;
         public bool IsRunning { get; private set; }
+        public BoardGrid2D BoardGrid => boardGrid2D;
+        private BoardGrid2D boardGrid2D;
 
         public void Initialize(LevelData data)
         {
@@ -82,6 +84,22 @@ namespace ColonyFlow
             tray.ColonyCompleted += OnColonyCompleted;
             deadlockTimer = 0f;
             IsRunning = true;
+
+            // Generate and debug 2D grid matrix
+            boardGrid2D = new BoardGrid2D();
+            boardGrid2D.Build(pixelBoard, borderPath, tray, tileBoard, level);
+            boardGrid2D.LogDebug();
+        }
+
+        [ContextMenu("Debug Board Grid 2D")]
+        public void DebugBoardGrid2D()
+        {
+            if (boardGrid2D == null)
+            {
+                boardGrid2D = new BoardGrid2D();
+                boardGrid2D.Build(pixelBoard, borderPath, tray, tileBoard, level);
+            }
+            boardGrid2D.LogDebug();
         }
 
         public void Shutdown()
@@ -206,37 +224,74 @@ namespace ColonyFlow
         public void FitBoardToPictureViewport(Rect viewport)
         {
             if (level == null || pixelBoard == null || borderPath == null || gameplayCamera == null || cameraRig == null) return;
-            // Fit the border lane, not only the pixels. Consequently every pixel
-            // remains inside the UI frame and ants crawl directly along its inset.
-            float localWidth = (level.width - 1 + borderPath.HorizontalMarginCells * 2) * level.cellSize;
-            float localHeight = (level.height - 1 + borderPath.VerticalMarginCells * 2) * level.cellSize;
-            if (localWidth <= 0f || localHeight <= 0f) return;
-
-            // CameraRig uses an orthographic tilted camera. UI viewport coordinates
-            // must be mapped through its orthographic projection; intersecting rays
-            // with z=0 shifts the board far below the authored frame.
+            
             float orthoSize = gameplayCamera.orthographicSize;
-            float tiltCos = Mathf.Cos(cameraRig.TiltAngle * Mathf.Deg2Rad);
+            float tiltCos = UnityEngine.Mathf.Cos(cameraRig.TiltAngle * UnityEngine.Mathf.Deg2Rad);
+            
+            // Screen dimensions in camera world units
             float availableWidth = viewport.width * 2f * orthoSize * gameplayCamera.aspect;
             float availableHeight = viewport.height * 2f * orthoSize;
-            float fitScale = Mathf.Min(availableWidth / localWidth, availableHeight / localHeight);
+            
+            // Screen aspect ratio of the UI frame (NO tiltCos needed for screen projection)
+            float screenAspect = availableWidth / availableHeight;
+            
+            int baseH = Mathf.Max(1, borderPath.BaseHorizontalMarginCells);
+            int baseV = Mathf.Max(1, borderPath.BaseVerticalMarginCells);
+            
+            int minW = (level.width - 1) + 2 * baseH;
+            int minH = (level.height - 1) + 2 * baseV;
+            
+            int finalHMargin = baseH;
+            int finalVMargin = baseV;
+            
+            float minGridAspect = (float)minW / minH;
+            if (minGridAspect > screenAspect)
+            {
+                // Grid is wider than screen frame -> expand vertical margin so border matches frame height
+                int desiredH = Mathf.CeilToInt(minW / screenAspect);
+                finalVMargin = Mathf.Max(baseV, Mathf.CeilToInt((desiredH - (level.height - 1)) / 2f));
+            }
+            else if (minGridAspect < screenAspect)
+            {
+                // Grid is taller than screen frame -> expand horizontal margin so border matches frame width
+                int desiredW = Mathf.CeilToInt(minH * screenAspect);
+                finalHMargin = Mathf.Max(baseH, Mathf.CeilToInt((desiredW - (level.width - 1)) / 2f));
+            }
+            
+            borderPath.SetDynamicMargins(finalHMargin, finalVMargin);
+            
+            float localWidth = (level.width - 1 + finalHMargin * 2) * level.cellSize;
+            float localHeight = (level.height - 1 + finalVMargin * 2) * level.cellSize;
+            if (localWidth <= 0f || localHeight <= 0f) return;
+
+            // Direct screen fit: projected size local * fitScale fits into available screen dimensions
+            float fitScale = UnityEngine.Mathf.Min(availableWidth / localWidth, availableHeight / localHeight);
             float centerX = (viewport.center.x - 0.5f) * 2f * orthoSize * gameplayCamera.aspect;
             float centerY = (viewport.center.y - 0.5f) * 2f * orthoSize;
 
-            Vector3 scale = new(fitScale, fitScale / tiltCos, fitScale);
-            pixelBoard.transform.localPosition = new Vector3(centerX, centerY / tiltCos, 0f);
+            // tiltCos is applied to scale.y and localPosition.y to compensate for the 25 degree camera tilt
+            UnityEngine.Vector3 scale = new(fitScale, fitScale / tiltCos, fitScale);
+            pixelBoard.transform.localPosition = new UnityEngine.Vector3(centerX, centerY / tiltCos, 0f);
             pixelBoard.transform.localScale = scale;
             if (antRoot != null) antRoot.localScale = scale;
 
-            // The artwork keeps square cells, while the ant lane independently
-            // occupies the complete UI rectangle on all four sides.
-            float halfWidth = availableWidth * 0.5f;
-            float halfHeight = availableHeight * 0.5f / tiltCos;
-            borderPath.SetWorldBounds(
-                new Vector2(centerX - halfWidth, centerY / tiltCos - halfHeight),
-                new Vector2(centerX + halfWidth, centerY / tiltCos + halfHeight));
-        }
+            // Hybrid world bounds:
+            //   X axis → viewport edges (wLeft/wRight): ants walk at the physical left/right frame borders.
+            //   Y axis → board.GridToWorld corners: SAME coordinate system as the inner A* path
+            //            (which always calls board.GridToWorld). Using viewport Y here creates a
+            //            mismatch that makes ants appear to jump vertically at border→inner transitions
+            //            (visually: "going straight up" instead of entering the picture perpendicularly).
+            float wLeft  = (viewport.xMin - 0.5f) * 2f * orthoSize * gameplayCamera.aspect;
+            float wRight = (viewport.xMax - 0.5f) * 2f * orthoSize * gameplayCamera.aspect;
+            UnityEngine.Vector2Int bMin = new(-finalHMargin, -finalVMargin);
+            UnityEngine.Vector2Int bMax = new(pixelBoard.Width - 1 + finalHMargin, pixelBoard.Height - 1 + finalVMargin);
+            UnityEngine.Vector3 boardBL = pixelBoard.GridToWorld(bMin);
+            UnityEngine.Vector3 boardTR = pixelBoard.GridToWorld(bMax);
+            borderPath.SetWorldBounds(new UnityEngine.Vector2(wLeft,  boardBL.y),
+                                      new UnityEngine.Vector2(wRight, boardTR.y));
 
+            UnityEngine.Debug.Log($"[FIT_DEBUG] viewport: {viewport}, bounds: w={availableWidth:F2} h={availableHeight:F2}, screenAspect={screenAspect:F2}, HMargin={finalHMargin} VMargin={finalVMargin}, fitScale={fitScale:F2}, pos={pixelBoard.transform.localPosition}");
+        }
         private void EnsureRuntimeAntPrefab()
         {
             if (antPrefab != null) return;

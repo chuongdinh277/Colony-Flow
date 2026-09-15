@@ -61,6 +61,21 @@ namespace ColonyFlow
             }
         }
 
+        private float gameSpeedScale = 1f;
+        public float GameSpeedScale
+        {
+            get => gameSpeedScale;
+            set
+            {
+                gameSpeedScale = Mathf.Max(0.1f, value);
+                if (IsState(GameState.Playing))
+                {
+                    Time.timeScale = gameSpeedScale;
+                    Time.fixedDeltaTime = 0.02f * gameSpeedScale;
+                }
+            }
+        }
+
         public void Pause(bool paused)
         {
             if (paused && IsState(GameState.Playing))
@@ -70,14 +85,16 @@ namespace ColonyFlow
             }
             else if (!paused && IsState(GameState.Paused))
             {
-                Time.timeScale = 1f;
+                Time.timeScale = gameSpeedScale;
+                Time.fixedDeltaTime = 0.02f * gameSpeedScale;
                 ChangeState(GameState.Playing);
             }
         }
 
         public void ResetMatch(bool nextLevel)
         {
-            Time.timeScale = 1f;
+            Time.timeScale = gameSpeedScale;
+            Time.fixedDeltaTime = 0.02f * gameSpeedScale;
             SimplePool.CollectAll();
             
             if (LevelManager.Ins != null)

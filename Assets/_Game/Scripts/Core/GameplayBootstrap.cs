@@ -18,6 +18,8 @@ namespace ColonyFlow
                 UnityEditor.EditorPrefs.DeleteKey("ColonyFlow.PlaytestLevelPath");
             }
 #endif
+            UIManager.EnsureEventSystem();
+
             if (GameManager.Ins == null)
                 new GameObject("Managers").AddComponent<GameManager>();
 

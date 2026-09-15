@@ -20,13 +20,16 @@ namespace ColonyFlow
         }
 
         public bool TryLaunch(PixelBoard board, PixelCell target, IReadOnlyList<Vector3> route, int returnWaypointIndex,
-            IReadOnlyList<Vector3> returnRoute, Color color,
+            IReadOnlyList<Vector3> returnRoute, Color color, object reservationOwner,
             Action<AntAgent, PixelCell, bool> completed, out AntAgent ant)
         {
             ant = null;
             if (prefab == null || board == null || target == null || route == null || route.Count == 0) return false;
             AntAgent spawned = SimplePool.Spawn(prefab, route[0], Quaternion.identity, activeRoot);
-            if (spawned == null || !target.TryReserve(spawned))
+            bool reserved = spawned != null && (reservationOwner != null
+                ? target.TryTransferReservation(reservationOwner, spawned)
+                : target.TryReserve(spawned));
+            if (spawned == null || !reserved)
             {
                 if (spawned != null) SimplePool.Despawn(spawned);
                 return false;

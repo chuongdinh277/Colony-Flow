@@ -7,7 +7,7 @@ namespace ColonyFlow
         public Vector2Int Position { get; }
         public int ColorIndex { get; }
         public bool IsDestroyed { get; private set; }
-        public AntAgent ReservedBy { get; private set; }
+        public object ReservedBy { get; private set; }
         public PixelCellView View { get; set; }
 
         public bool IsReserved => ReservedBy != null;
@@ -18,16 +18,23 @@ namespace ColonyFlow
             ColorIndex = colorIndex;
         }
 
-        public bool TryReserve(AntAgent ant)
+        public bool TryReserve(object owner)
         {
-            if (IsDestroyed || ReservedBy != null || ant == null) return false;
-            ReservedBy = ant;
+            if (IsDestroyed || ReservedBy != null || owner == null) return false;
+            ReservedBy = owner;
             return true;
         }
 
-        public void Release(AntAgent ant)
+        public bool TryTransferReservation(object currentOwner, object nextOwner)
         {
-            if (ReservedBy == ant) ReservedBy = null;
+            if (IsDestroyed || ReservedBy != currentOwner || nextOwner == null) return false;
+            ReservedBy = nextOwner;
+            return true;
+        }
+
+        public void Release(object owner)
+        {
+            if (ReservedBy == owner) ReservedBy = null;
         }
 
         public PixelCellView Collect()

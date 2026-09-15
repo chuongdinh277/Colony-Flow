@@ -25,7 +25,11 @@ namespace ColonyFlow
             GameManager.Ins.Pause(paused);
         }
 
-        public void SetSpeed(float speed) => Time.timeScale = Mathf.Clamp(speed, 0.25f, 2f);
+        public void SetSpeed(float speed)
+        {
+            EnsureManagers();
+            GameManager.Ins.GameSpeedScale = Mathf.Clamp(speed, 0.25f, 2f);
+        }
 
         public void StopLevel()
         {

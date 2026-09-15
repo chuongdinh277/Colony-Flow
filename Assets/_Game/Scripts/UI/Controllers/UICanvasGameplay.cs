@@ -34,6 +34,11 @@ public class UICanvasGameplay : UICanvas
 
     private readonly float[] speeds = { 1f, 2f };
     private int speedIndex;
+    private Image speedButtonImage;
+    private GameObject speedBadgeObject;
+    private TextMeshProUGUI speedBadgeText;
+    private Image speedBadgeImage;
+    private Coroutine speedBounceCoroutine;
     private readonly Dictionary<Image, Image> occupiedTrayVisuals = new();
     private readonly Dictionary<Image, TextMeshProUGUI> centeredTrayLabels = new();
 
@@ -43,6 +48,7 @@ public class UICanvasGameplay : UICanvas
     {
         base.Setup();
 
+        UIManager.EnsureEventSystem();
         ConfigureGameplayRendering();
         EnsureGameplayRenderSurface();
 
@@ -52,11 +58,28 @@ public class UICanvasGameplay : UICanvas
             btnPause.onClick.AddListener(OnPauseClicked);
         }
 
+        if (btnSpeed == null)
+        {
+            Transform found = FindDeepChild(transform, "Btn_Speed");
+            if (found != null) btnSpeed = found.GetComponent<Button>();
+        }
+
         if (btnSpeed != null)
         {
+            speedButtonImage = btnSpeed.GetComponent<Image>();
+            if (txtSpeed == null)
+            {
+                txtSpeed = btnSpeed.GetComponentInChildren<TextMeshProUGUI>(true);
+            }
+            EnsureSpeedStatusBadge();
+
             btnSpeed.onClick.RemoveAllListeners();
             btnSpeed.onClick.AddListener(OnSpeedClicked);
         }
+
+        float currentSpeed = GameManager.Ins != null ? GameManager.Ins.GameSpeedScale : Time.timeScale;
+        speedIndex = currentSpeed >= 1.5f ? 1 : 0;
+        ApplySpeed(speeds[speedIndex], false);
 
         for (int i = 0; i < btnBoosters.Length; i++)
         {
@@ -230,7 +253,7 @@ public class UICanvasGameplay : UICanvas
             gameplayRenderImage = surface.GetComponent<RawImage>();
             gameplayRenderImage.texture = gameplayRenderTexture;
             gameplayRenderImage.raycastTarget = false;
-            // The booster panel occludes the lowest queued boxes, as authored.
+            // The booster panel and safe area controls occlude the world surface and receive clicks
             Transform boosterBar = FindDeepChild(transform, "BoosterBar");
             if (boosterBar != null)
             {
@@ -240,6 +263,15 @@ public class UICanvasGameplay : UICanvas
                 boosterCanvas.sortingOrder = hostCanvas.sortingOrder + 10;
                 if (boosterBar.GetComponent<GraphicRaycaster>() == null)
                     boosterBar.gameObject.AddComponent<GraphicRaycaster>();
+            }
+
+            Transform safeArea = FindDeepChild(transform, "SafeArea");
+            if (safeArea != null)
+            {
+                Canvas existingCanvas = safeArea.GetComponent<Canvas>();
+                if (existingCanvas != null) Destroy(existingCanvas);
+                GraphicRaycaster existingRaycaster = safeArea.GetComponent<GraphicRaycaster>();
+                if (existingRaycaster != null) Destroy(existingRaycaster);
             }
         }
     }
@@ -372,14 +404,134 @@ public class UICanvasGameplay : UICanvas
         UICanvasGameSetting.Show(true);
     }
 
+    private void EnsureSpeedStatusBadge()
+    {
+        if (btnSpeed == null || speedBadgeObject != null) return;
+
+        Transform existingBadge = btnSpeed.transform.Find("SpeedStatusBadge");
+        if (existingBadge != null)
+        {
+            speedBadgeObject = existingBadge.gameObject;
+            speedBadgeImage = speedBadgeObject.GetComponent<Image>();
+            speedBadgeText = speedBadgeObject.GetComponentInChildren<TextMeshProUGUI>(true);
+            return;
+        }
+
+        speedBadgeObject = new GameObject("SpeedStatusBadge", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+        speedBadgeObject.transform.SetParent(btnSpeed.transform, false);
+
+        RectTransform rt = speedBadgeObject.GetComponent<RectTransform>();
+        rt.anchorMin = new Vector2(0.5f, 0f);
+        rt.anchorMax = new Vector2(0.5f, 0f);
+        rt.pivot = new Vector2(0.5f, 0.5f);
+        rt.anchoredPosition = new Vector2(0f, -4f);
+        rt.sizeDelta = new Vector2(74f, 22f);
+
+        speedBadgeImage = speedBadgeObject.GetComponent<Image>();
+        speedBadgeImage.sprite = RuntimeSprite.RoundedSquare;
+        speedBadgeImage.type = Image.Type.Sliced;
+        speedBadgeImage.raycastTarget = false;
+
+        GameObject textObj = new GameObject("BadgeText", typeof(RectTransform), typeof(CanvasRenderer), typeof(TextMeshProUGUI));
+        textObj.transform.SetParent(speedBadgeObject.transform, false);
+
+        RectTransform textRt = textObj.GetComponent<RectTransform>();
+        textRt.anchorMin = Vector2.zero;
+        textRt.anchorMax = Vector2.one;
+        textRt.offsetMin = Vector2.zero;
+        textRt.offsetMax = Vector2.zero;
+
+        speedBadgeText = textObj.GetComponent<TextMeshProUGUI>();
+        speedBadgeText.alignment = TextAlignmentOptions.Center;
+        speedBadgeText.fontStyle = FontStyles.Bold;
+        speedBadgeText.fontSize = 15f;
+        speedBadgeText.enableAutoSizing = false;
+        speedBadgeText.raycastTarget = false;
+        if (txtLevel != null) speedBadgeText.font = txtLevel.font;
+    }
+
     private void OnSpeedClicked()
     {
         speedIndex = (speedIndex + 1) % speeds.Length;
-        Time.timeScale = speeds[speedIndex];
+        ApplySpeed(speeds[speedIndex], true);
+        SoundManager.Ins?.PlayUIFx(UIFxID.ButtonClick);
+    }
+
+    public void ApplySpeed(float speed, bool animate)
+    {
+        if (GameManager.Ins != null)
+        {
+            GameManager.Ins.GameSpeedScale = speed;
+        }
+        else
+        {
+            Time.timeScale = speed;
+            Time.fixedDeltaTime = 0.02f * speed;
+        }
+
+        UpdateSpeedVisual(animate);
+    }
+
+    private void UpdateSpeedVisual(bool animate)
+    {
+        bool is2X = speedIndex == 1;
+
+        if (speedButtonImage != null)
+        {
+            speedButtonImage.color = is2X ? Color.white : new Color(0.68f, 0.72f, 0.82f, 0.82f);
+        }
+
+        if (speedBadgeText != null && speedBadgeImage != null)
+        {
+            speedBadgeText.text = is2X ? "2X FAST" : "1X";
+            speedBadgeText.color = is2X ? Color.white : new Color(0.8f, 0.85f, 0.9f, 0.95f);
+            speedBadgeImage.color = is2X
+                ? new Color(0.15f, 0.75f, 0.35f, 1f)
+                : new Color(0.12f, 0.14f, 0.2f, 0.9f);
+        }
+
         if (txtSpeed != null)
         {
-            txtSpeed.text = speedIndex == 1 ? "2x" : "1x";
+            txtSpeed.text = is2X ? "2x" : "1x";
         }
+
+        if (animate && btnSpeed != null && gameObject.activeInHierarchy)
+        {
+            if (speedBounceCoroutine != null) StopCoroutine(speedBounceCoroutine);
+            speedBounceCoroutine = StartCoroutine(AnimateSpeedButton(is2X ? 1.06f : 1f));
+        }
+        else if (btnSpeed != null)
+        {
+            btnSpeed.transform.localScale = Vector3.one * (is2X ? 1.06f : 1f);
+        }
+    }
+
+    private System.Collections.IEnumerator AnimateSpeedButton(float targetScale)
+    {
+        if (btnSpeed == null) yield break;
+        Transform tr = btnSpeed.transform;
+        Vector3 startScale = tr.localScale;
+        Vector3 popScale = Vector3.one * (targetScale * 1.18f);
+        Vector3 finalScale = Vector3.one * targetScale;
+
+        float d1 = 0.08f;
+        float elapsed = 0f;
+        while (elapsed < d1)
+        {
+            elapsed += Time.unscaledDeltaTime;
+            tr.localScale = Vector3.Lerp(startScale, popScale, elapsed / d1);
+            yield return null;
+        }
+
+        float d2 = 0.12f;
+        elapsed = 0f;
+        while (elapsed < d2)
+        {
+            elapsed += Time.unscaledDeltaTime;
+            tr.localScale = Vector3.Lerp(popScale, finalScale, elapsed / d2);
+            yield return null;
+        }
+        tr.localScale = finalScale;
     }
 
     private void OnDestroy()
