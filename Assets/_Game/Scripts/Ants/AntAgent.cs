@@ -150,6 +150,7 @@ namespace ColonyFlow
                         carriedBox.BeginCarry(TF, board.CellSize);
                         Color pixelColor = visibleAntRenderer != null ? visibleAntRenderer.color : Color.white;
                         PixelPickupFx.Ins.PlayAt(carriedBox.TF.position, pixelColor);
+                        SoundManager.Ins?.PlayGameFx(GameFxID.BoxCollected);
                     }
                     pickedUp = true;
                 }

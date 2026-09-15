@@ -77,10 +77,16 @@ public class UICanvasGameSetting : UICanvas
         if (btnVibration != null) { btnVibration.onClick.RemoveAllListeners(); btnVibration.onClick.AddListener(OnVibrationClicked); }
         if (btnTheme != null) { btnTheme.onClick.RemoveAllListeners(); btnTheme.onClick.AddListener(OnThemeClicked); }
 
+        if (SoundManager.Ins != null)
+        {
+            sound = SoundManager.Ins.IsFxOn;
+            music = SoundManager.Ins.IsMusicOn;
+        }
+
         Refresh(false);
     }
 
-    private void OnSoundClicked() { sound = !sound; Refresh(true); }
+    private void OnSoundClicked() { sound = !sound; SoundManager.Ins?.SetFxEnabled(sound); Refresh(true); }
     private void OnMusicClicked() { music = !music; SoundManager.Ins?.SetMusicEnabled(music); Refresh(true); }
     private void OnVibrationClicked() { vibration = !vibration; Refresh(true); }
     private void OnThemeClicked() { theme = !theme; Refresh(true); }

@@ -94,9 +94,13 @@ namespace ColonyFlow
             if (State == ColonyState.Completed || RemainingCount <= 0) return;
 
             // Maintain a small pipeline buffer (1 pending ant) so multiple colonies of the
-            // same color can draw and spawn ants concurrently without one monopolizing all targets.
+            // same color can draw and spawn ants concurrently without one monopolizing all targets,
+            // while respecting maxConcurrentAnts limit to prevent infinite active 3D ants accumulation.
             int currentPending = preparedAnts.Count + routePendingCount;
-            int bufferCapacity = 1;
+            int availableAntSlots = maxConcurrentAnts - (activeAnts.Count + currentPending);
+            if (availableAntSlots <= 0) return;
+
+            int bufferCapacity = Mathf.Min(1, availableAntSlots);
             int needed = Mathf.Min(RemainingCount - currentPending, bufferCapacity - currentPending);
             int availableTargets = board.GetAvailableTargets(ColorIndex).Count;
             int requestCount = Mathf.Clamp(needed, 0, availableTargets - routePendingCount);

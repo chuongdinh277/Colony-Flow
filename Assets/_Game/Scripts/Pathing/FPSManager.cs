@@ -18,6 +18,9 @@ namespace ColonyFlow
         private readonly Queue<Request> requests = new();
         private AntRouteService routeService;
 
+        [SerializeField, Range(1f, 8f)] private float maxBudgetMilliseconds = 2f;
+        [SerializeField, Range(1, 10)] private int maxRequestsPerFrame = 4;
+
         public int PendingCount => requests.Count;
         public int LastProcessedFrame { get; private set; } = -1;
 
@@ -45,8 +48,12 @@ namespace ColonyFlow
         {
             if (requests.Count == 0) return;
             LastProcessedFrame = Time.frameCount;
-            int batchCount = requests.Count;
-            for (int i = 0; i < batchCount; i++)
+
+            float startTime = Time.realtimeSinceStartup;
+            float maxDuration = maxBudgetMilliseconds / 1000f;
+            int processed = 0;
+
+            while (requests.Count > 0 && processed < maxRequestsPerFrame)
             {
                 Request request = requests.Dequeue();
                 if (routeService.TryBuildBestRoute(request.colorIndex, request.spawnWorld,
@@ -54,6 +61,9 @@ namespace ColonyFlow
                     request.completed(target, route);
                 else
                     request.completed(null, null);
+
+                processed++;
+                if (Time.realtimeSinceStartup - startTime >= maxDuration) break;
             }
         }
 

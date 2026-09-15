@@ -127,7 +127,6 @@ public class UICanvasGameplay : UICanvas
         }
         if (pictureFrame == null) return false;
 
-        Canvas.ForceUpdateCanvases();
         Canvas canvas = GetComponentInChildren<Canvas>(true);
         RectTransform canvasRect = canvas != null ? canvas.transform as RectTransform : null;
         if (canvasRect == null || canvasRect.rect.width <= 0f || canvasRect.rect.height <= 0f) return false;
@@ -169,25 +168,48 @@ public class UICanvasGameplay : UICanvas
         canvas.sortingOrder = 0;
     }
 
+    private Rect lastFittedViewport;
+    private int lastScreenWidth;
+    private int lastScreenHeight;
+    private LevelController lastLayerSetupController;
+
     private void LateUpdate()
     {
         EnsureGameplayRenderSurface();
         LevelController controller = LevelManager.Ins != null ? LevelManager.Ins.Controller : null;
         if (controller == null || gameplayRenderCamera == null) return;
 
-        // The UI Canvas can finish layout after the level has initialized (and it
-        // can change on Game-view resize). Refit here using the final authored rect.
-        if (TryGetPictureViewport(out Rect pictureViewport))
-            controller.FitBoardToPictureViewport(pictureViewport);
+        // Only re-fit when viewport or screen resolution actually changes
+        if (Screen.width != lastScreenWidth || Screen.height != lastScreenHeight)
+        {
+            lastScreenWidth = Screen.width;
+            lastScreenHeight = Screen.height;
+            Canvas.ForceUpdateCanvases();
+        }
 
-        SetLayerRecursively(controller.Board != null ? controller.Board.transform : null, GameplayRenderLayer);
-        // The five tray slots are authored UI Images. Do not render the legacy
-        // world-space tray over them, otherwise it covers their TMP amounts.
-        SetLayerRecursively(controller.Tray != null ? controller.Tray.transform : null, 0);
-        Transform tileBoard = controller.transform.Find("ColonyTileBoard");
-        Transform ants = controller.transform.Find("Ants");
-        SetLayerRecursively(tileBoard, GameplayRenderLayer);
-        SetLayerRecursively(ants, GameplayRenderLayer);
+        if (TryGetPictureViewport(out Rect pictureViewport))
+        {
+            if (Mathf.Abs(pictureViewport.x - lastFittedViewport.x) > 0.001f ||
+                Mathf.Abs(pictureViewport.y - lastFittedViewport.y) > 0.001f ||
+                Mathf.Abs(pictureViewport.width - lastFittedViewport.width) > 0.001f ||
+                Mathf.Abs(pictureViewport.height - lastFittedViewport.height) > 0.001f)
+            {
+                lastFittedViewport = pictureViewport;
+                controller.FitBoardToPictureViewport(pictureViewport);
+            }
+        }
+
+        // Set layers only ONCE when level changes, not every frame across thousands of transforms
+        if (lastLayerSetupController != controller)
+        {
+            lastLayerSetupController = controller;
+            SetLayerRecursively(controller.Board != null ? controller.Board.transform : null, GameplayRenderLayer);
+            SetLayerRecursively(controller.Tray != null ? controller.Tray.transform : null, 0);
+            Transform tileBoard = controller.transform.Find("ColonyTileBoard");
+            Transform ants = controller.transform.Find("Ants");
+            SetLayerRecursively(tileBoard, GameplayRenderLayer);
+            SetLayerRecursively(ants, GameplayRenderLayer);
+        }
 
         if (sourceCamera != null)
         {
@@ -220,7 +242,7 @@ public class UICanvasGameplay : UICanvas
                 gameplayRenderTexture.Release();
                 Destroy(gameplayRenderTexture);
             }
-            gameplayRenderTexture = new RenderTexture(width, height, 24, RenderTextureFormat.ARGB32)
+            gameplayRenderTexture = new RenderTexture(width, height, 16, RenderTextureFormat.ARGB32)
             {
                 name = "GameplayWorld_Transparent",
                 filterMode = FilterMode.Bilinear
@@ -235,13 +257,11 @@ public class UICanvasGameplay : UICanvas
             cameraObject.transform.SetParent(transform, false);
             gameplayRenderCamera = cameraObject.AddComponent<Camera>();
             gameplayRenderCamera.CopyFrom(sourceCamera);
-            UniversalAdditionalCameraData sourceData = sourceCamera.GetUniversalAdditionalCameraData();
             UniversalAdditionalCameraData renderData = gameplayRenderCamera.GetUniversalAdditionalCameraData();
-            renderData.renderPostProcessing = sourceData.renderPostProcessing;
-            renderData.antialiasing = sourceData.antialiasing;
-            renderData.antialiasingQuality = sourceData.antialiasingQuality;
-            renderData.requiresDepthOption = CameraOverrideOption.On;
-            renderData.requiresColorOption = CameraOverrideOption.On;
+            renderData.renderPostProcessing = false;
+            renderData.antialiasing = AntialiasingMode.None;
+            renderData.requiresDepthOption = CameraOverrideOption.Off;
+            renderData.requiresColorOption = CameraOverrideOption.Off;
             gameplayRenderCamera.clearFlags = CameraClearFlags.SolidColor;
             gameplayRenderCamera.backgroundColor = Color.clear;
             gameplayRenderCamera.cullingMask = 1 << GameplayRenderLayer;

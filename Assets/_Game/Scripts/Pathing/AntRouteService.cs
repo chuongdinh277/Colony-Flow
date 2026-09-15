@@ -12,10 +12,24 @@ namespace ColonyFlow
             public List<Vector3> route;
         }
 
+        private struct InnerPathResult
+        {
+            public int revision;
+            public int exitIndex;
+            public Vector2Int edgeCell;
+            public List<Vector2Int> pathFromEdge;
+        }
+
         [SerializeField] private PixelBoard board;
         [SerializeField] private BorderPath border;
         private readonly Dictionary<long, CachedRoute> cache = new();
         private readonly Dictionary<int, CachedRoute> returnToEntranceCache = new();
+        private readonly Dictionary<long, InnerPathResult> innerPathCache = new();
+
+        // Reusable BFS data structures to avoid GC allocation per request
+        private readonly Queue<Vector2Int> bfsQueue = new();
+        private readonly Dictionary<Vector2Int, Vector2Int> bfsParentMap = new();
+        private readonly Dictionary<Vector2Int, int> bfsDepthMap = new();
 
         private int MinX => border != null ? -border.HorizontalMarginCells : 0;
         private int MaxX => border != null && board != null ? board.Width - 1 + border.HorizontalMarginCells : 0;
@@ -28,6 +42,7 @@ namespace ColonyFlow
             border = borderPath;
             cache.Clear();
             returnToEntranceCache.Clear();
+            innerPathCache.Clear();
         }
 
         public Vector3 EntranceWorldPosition => border != null ? border.EntranceWorldPosition : transform.position;
@@ -61,10 +76,31 @@ namespace ColonyFlow
 
             int entryIndex = border.FindNearestWorldIndex(colonySpawnWorld);
 
-            if (!TryFindPathToPictureEdge(target, entryIndex,
-                    out int exitIndex, out Vector2Int edgeCell, out List<Vector2Int> pathFromEdge))
+            int exitIndex;
+            Vector2Int edgeCell;
+            List<Vector2Int> pathFromEdge;
+
+            long innerKey = ((long)entryIndex << 32) | ((long)(ushort)target.Position.x << 16) | (ushort)target.Position.y;
+            if (innerPathCache.TryGetValue(innerKey, out InnerPathResult cachedInner) && cachedInner.revision == board.Revision)
             {
-                return false;
+                exitIndex = cachedInner.exitIndex;
+                edgeCell = cachedInner.edgeCell;
+                pathFromEdge = cachedInner.pathFromEdge;
+            }
+            else
+            {
+                if (!TryFindPathToPictureEdge(target, entryIndex,
+                        out exitIndex, out edgeCell, out pathFromEdge))
+                {
+                    return false;
+                }
+                innerPathCache[innerKey] = new InnerPathResult
+                {
+                    revision = board.Revision,
+                    exitIndex = exitIndex,
+                    edgeCell = edgeCell,
+                    pathFromEdge = pathFromEdge
+                };
             }
 
             int routeEntry = CaveAdjustedEntryIndex(colonySpawnWorld, exitIndex, entryIndex);
@@ -199,10 +235,11 @@ namespace ColonyFlow
 
             // Checks all outward-facing directions from a picture edge cell and projects
             // straight out to the corresponding outer frame border. Picks the closest border.
-            bool TryGetBorderProjection(Vector2Int cell, out int bestBorderIdx, out int minProjDist)
+            bool TryGetBorderProjection(Vector2Int cell, out int bestBorderIdx, out int minProjDist, out int minBorderDist)
             {
                 bestBorderIdx = -1;
                 minProjDist = int.MaxValue;
+                minBorderDist = int.MaxValue;
                 int bestBorderDistance = int.MaxValue;
 
                 foreach (Vector2Int dir in GridDirections.Four)
@@ -244,11 +281,12 @@ namespace ColonyFlow
                     }
                 }
 
+                minBorderDist = bestBorderDistance;
                 return bestBorderIdx >= 0;
             }
 
             // Case 1: Target pixel is already at the boundary of the picture
-            if (TryGetBorderProjection(target.Position, out int directBorderIdx, out _))
+            if (TryGetBorderProjection(target.Position, out int directBorderIdx, out _, out _))
             {
                 edgeCell = target.Position;
                 exitIndex = directBorderIdx;
@@ -258,16 +296,16 @@ namespace ColonyFlow
 
             // Case 2: Target is inside the picture; run BFS through walkable cells inside the picture
             // to find the shortest path to an edge cell that opens to the outside.
-            var queue = new Queue<Vector2Int>();
-            var parentMap = new Dictionary<Vector2Int, Vector2Int>();
-            var visited = new HashSet<Vector2Int>();
+            bfsQueue.Clear();
+            bfsParentMap.Clear();
+            bfsDepthMap.Clear();
 
             foreach (Vector2Int dir in GridDirections.Four)
             {
                 Vector2Int start = target.Position + dir;
                 if (IsOutsidePicture(start))
                 {
-                    if (TryGetBorderProjection(target.Position, out int bIdx, out _))
+                    if (TryGetBorderProjection(target.Position, out int bIdx, out _, out _))
                     {
                         edgeCell = target.Position;
                         exitIndex = bIdx;
@@ -277,35 +315,44 @@ namespace ColonyFlow
                 }
                 else if (board.IsWalkable(start))
                 {
-                    queue.Enqueue(start);
-                    parentMap[start] = target.Position;
-                    visited.Add(start);
+                    bfsQueue.Enqueue(start);
+                    bfsParentMap[start] = target.Position;
+                    bfsDepthMap[start] = 1;
                 }
             }
 
             Vector2Int foundEdgeCell = default;
             int foundExitIndex = -1;
+            int bestTotalCost = int.MaxValue;
 
-            while (queue.Count > 0)
+            while (bfsQueue.Count > 0)
             {
-                Vector2Int curr = queue.Dequeue();
+                Vector2Int curr = bfsQueue.Dequeue();
+                int currentDepth = bfsDepthMap[curr];
 
-                if (TryGetBorderProjection(curr, out int bIdx, out _))
+                // If current depth is already worse than bestTotalCost, any further search is pointless
+                if (currentDepth > bestTotalCost) break;
+
+                if (TryGetBorderProjection(curr, out int bIdx, out int pDist, out int bDist))
                 {
-                    foundEdgeCell = curr;
-                    foundExitIndex = bIdx;
-                    break;
+                    int totalCost = currentDepth + pDist + bDist;
+                    if (totalCost < bestTotalCost)
+                    {
+                        bestTotalCost = totalCost;
+                        foundEdgeCell = curr;
+                        foundExitIndex = bIdx;
+                    }
                 }
 
                 foreach (Vector2Int dir in GridDirections.Four)
                 {
                     Vector2Int next = curr + dir;
                     if (IsOutsidePicture(next)) continue;
-                    if (!board.IsWalkable(next) || visited.Contains(next)) continue;
+                    if (!board.IsWalkable(next) || bfsDepthMap.ContainsKey(next)) continue;
 
-                    visited.Add(next);
-                    parentMap[next] = curr;
-                    queue.Enqueue(next);
+                    bfsDepthMap[next] = currentDepth + 1;
+                    bfsParentMap[next] = curr;
+                    bfsQueue.Enqueue(next);
                 }
             }
 
@@ -320,7 +367,7 @@ namespace ColonyFlow
             while (step != target.Position)
             {
                 pathFromEdgeToTarget.Add(step);
-                step = parentMap[step];
+                step = bfsParentMap[step];
             }
             pathFromEdgeToTarget.Add(target.Position);
 

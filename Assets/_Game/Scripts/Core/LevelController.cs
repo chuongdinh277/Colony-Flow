@@ -85,10 +85,9 @@ namespace ColonyFlow
             deadlockTimer = 0f;
             IsRunning = true;
 
-            // Generate and debug 2D grid matrix
+            // Generate 2D grid matrix
             boardGrid2D = new BoardGrid2D();
             boardGrid2D.Build(pixelBoard, borderPath, tray, tileBoard, level);
-            boardGrid2D.LogDebug();
         }
 
         [ContextMenu("Debug Board Grid 2D")]
@@ -348,8 +347,6 @@ namespace ColonyFlow
             UnityEngine.Vector3 boardTR = pixelBoard.GridToWorld(bMax);
             borderPath.SetWorldBounds(new UnityEngine.Vector2(wLeft,  boardBL.y),
                                       new UnityEngine.Vector2(wRight, boardTR.y));
-
-            UnityEngine.Debug.Log($"[FIT_DEBUG] viewport: {viewport}, bounds: w={availableWidth:F2} h={availableHeight:F2}, screenAspect={screenAspect:F2}, HMargin={finalHMargin} VMargin={finalVMargin}, fitScale={fitScale:F2}, pos={pixelBoard.transform.localPosition}");
         }
         private void EnsureRuntimeAntPrefab()
         {
