@@ -100,8 +100,14 @@ namespace ColonyFlow
 
         public void Clear()
         {
-            foreach (PixelCell cell in liveCells.ToArray())
-                if (cell.View != null && cell.View.gameObject.activeSelf) SimplePool.Despawn(cell.View);
+            foreach (PixelCell cell in cells.Values)
+            {
+                if (cell.View != null)
+                {
+                    SimplePool.Despawn(cell.View);
+                    cell.View = null;
+                }
+            }
             cells.Clear();
             liveCells.Clear();
             exposedByColor.Clear();

@@ -49,15 +49,33 @@ public class UICanvasGameSetting : UICanvas
     {
         base.Setup();
 
-        if (btnClose != null) btnClose.onClick.AddListener(OnCloseClicked);
-        if (btnRetry != null) btnRetry.onClick.AddListener(OnRetryClicked);
-        if (btnHome != null) btnHome.onClick.AddListener(OnHomeClicked);
+        UIManager.EnsureEventSystem();
+
+        if (btnClose == null)
+        {
+            foreach (var b in GetComponentsInChildren<Button>(true))
+                if (b.name.IndexOf("Close", System.StringComparison.OrdinalIgnoreCase) >= 0) { btnClose = b; break; }
+        }
+        if (btnRetry == null)
+        {
+            foreach (var b in GetComponentsInChildren<Button>(true))
+                if (b.name.IndexOf("Retry", System.StringComparison.OrdinalIgnoreCase) >= 0) { btnRetry = b; break; }
+        }
+        if (btnHome == null)
+        {
+            foreach (var b in GetComponentsInChildren<Button>(true))
+                if (b.name.IndexOf("Home", System.StringComparison.OrdinalIgnoreCase) >= 0) { btnHome = b; break; }
+        }
+
+        if (btnClose != null) { btnClose.onClick.RemoveAllListeners(); btnClose.onClick.AddListener(OnCloseClicked); }
+        if (btnRetry != null) { btnRetry.onClick.RemoveAllListeners(); btnRetry.onClick.AddListener(OnRetryClicked); }
+        if (btnHome != null) { btnHome.onClick.RemoveAllListeners(); btnHome.onClick.AddListener(OnHomeClicked); }
 
         // Bind root row buttons
-        if (btnSound != null) btnSound.onClick.AddListener(OnSoundClicked);
-        if (btnMusic != null) btnMusic.onClick.AddListener(OnMusicClicked);
-        if (btnVibration != null) btnVibration.onClick.AddListener(OnVibrationClicked);
-        if (btnTheme != null) btnTheme.onClick.AddListener(OnThemeClicked);
+        if (btnSound != null) { btnSound.onClick.RemoveAllListeners(); btnSound.onClick.AddListener(OnSoundClicked); }
+        if (btnMusic != null) { btnMusic.onClick.RemoveAllListeners(); btnMusic.onClick.AddListener(OnMusicClicked); }
+        if (btnVibration != null) { btnVibration.onClick.RemoveAllListeners(); btnVibration.onClick.AddListener(OnVibrationClicked); }
+        if (btnTheme != null) { btnTheme.onClick.RemoveAllListeners(); btnTheme.onClick.AddListener(OnThemeClicked); }
 
         Refresh(false);
     }
@@ -133,19 +151,30 @@ public class UICanvasGameSetting : UICanvas
 
     private void OnRetryClicked()
     {
+        SoundManager.Ins?.PlayUIFx(UIFxID.ButtonClick);
+
         if (GameManager.Ins != null)
         {
-            GameManager.Ins.ResetMatch(false);
+            GameManager.Ins.Pause(false);
         }
-        else
+        Time.timeScale = 1f;
+        CloseDirectly();
+
+        UICanvasLoading.ShowWithAction(0.8f, () =>
         {
-            Time.timeScale = 1f;
-            if (LevelManager.Ins != null)
+            if (GameManager.Ins != null)
+            {
+                GameManager.Ins.ResetMatch(false);
+                GameManager.ChangeState(GameState.Playing);
+            }
+            else if (LevelManager.Ins != null)
             {
                 LevelManager.Ins.ReloadLevel();
             }
-        }
-        CloseDirectly();
+        }, () =>
+        {
+            UICanvasGameplay.Show();
+        });
     }
 
     private void OnHomeClicked()

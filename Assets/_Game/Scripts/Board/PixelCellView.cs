@@ -50,7 +50,11 @@ namespace ColonyFlow
                 colorBlock.SetColor(BaseColor, color);
                 colorBlock.SetColor(ColorId, color);
                 meshRenderer.SetPropertyBlock(colorBlock);
-                if (boxVisual != null) boxVisual.localScale = Vector3.one * fill;
+                if (boxVisual != null)
+                {
+                    boxVisual.localRotation = Quaternion.identity;
+                    boxVisual.localScale = Vector3.one * fill;
+                }
                 
                 if (spriteRenderer != null) spriteRenderer.enabled = false;
                 if (depthSprite != null) depthSprite.enabled = false;
@@ -144,6 +148,12 @@ namespace ColonyFlow
             carrier = null;
             carryBlend = 0f;
             Cell = null;
+            if (boxVisual != null)
+            {
+                boxVisual.localRotation = Quaternion.identity;
+                boxVisual.localScale = Vector3.one * fill;
+            }
+            if (spriteRenderer != null) spriteRenderer.sortingOrder = 10;
             SimplePool.Despawn(this);
         }
 
@@ -152,7 +162,14 @@ namespace ColonyFlow
         private void OnDisable()
         {
             carrier = null;
+            carryBlend = 0f;
             Cell = null;
+            if (boxVisual != null)
+            {
+                boxVisual.localRotation = Quaternion.identity;
+                boxVisual.localScale = Vector3.one * fill;
+            }
+            if (spriteRenderer != null) spriteRenderer.sortingOrder = 10;
         }
     }
 }

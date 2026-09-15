@@ -65,13 +65,32 @@ namespace ColonyFlow
             return false;
         }
 
-        public void Build(LevelData data, Camera camera)
+        public void ClearBoard()
         {
-            level = data;
-            gameplayCamera = camera;
+            foreach (ColonyTile tile in tiles.Values)
+            {
+                if (tile.View != null)
+                {
+                    tile.View.DetachColony();
+                    SimplePool.Despawn(tile.View);
+                    tile.View = null;
+                }
+            }
             tiles.Clear();
             viewsByCollider.Clear();
             columns.Clear();
+        }
+
+        private void OnDestroy()
+        {
+            ClearBoard();
+        }
+
+        public void Build(LevelData data, Camera camera)
+        {
+            ClearBoard();
+            level = data;
+            gameplayCamera = camera != null ? camera : Camera.main;
             EnsureRuntimePrefab();
             int columnCount = Mathf.Min(maxColumns, Mathf.Max(1, data.colonyTiles.Count));
             for (int i = 0; i < columnCount; i++) columns.Add(new List<ColonyTile>());
@@ -83,13 +102,8 @@ namespace ColonyFlow
                 tiles[item.id] = tile;
                 int columnIndex = i % columnCount;
                 columns[columnIndex].Add(tile);
-                Vector3 position = GetWorldPosition(columnIndex, columns[columnIndex].Count - 1);
-                ColonyTileView view = SimplePool.Spawn(tilePrefab, position, Quaternion.identity, transform);
-                view.TF.localScale = new Vector3(tileSize.x, tileSize.y, 1f);
-                view.Bind(tile, this, data.palette.GetColor(item.colorIndex));
-                if (view.CachedCollider != null) viewsByCollider[view.CachedCollider.GetInstanceID()] = view;
             }
-            RefreshColumns();
+            RefreshColumns(true);
         }
 
         public bool TrySelect(int id)
@@ -99,23 +113,73 @@ namespace ColonyFlow
             if (handlers == null || handlers.Length == 0) return false;
             foreach (Func<ColonyTile, bool> handler in handlers)
                 if (!handler(tile)) return false;
+
+            if (tile.View != null && tile.View.CachedCollider != null)
+            {
+                viewsByCollider.Remove(tile.View.CachedCollider.GetInstanceID());
+            }
+
             tile.MoveToTray();
             RemoveFromColumn(tile);
-            RefreshColumns();
+            RefreshColumns(false);
             return true;
         }
 
         private void Update()
         {
             if (!TryGetPointerDown(out Vector2 screenPosition)) return;
-            if (gameplayCamera == null) return;
+            if (gameplayCamera == null)
+            {
+                gameplayCamera = Camera.main;
+                if (gameplayCamera == null) return;
+            }
+
+            if (UnityEngine.EventSystems.EventSystem.current != null && 
+                UnityEngine.EventSystems.EventSystem.current.IsPointerOverGameObject())
+            {
+                return;
+            }
+
+            // Check 1: 3D Ray into 2D colliders
             Ray ray = gameplayCamera.ScreenPointToRay(screenPosition);
-            var gameplayPlane = new Plane(Vector3.forward, transform.position);
-            if (!gameplayPlane.Raycast(ray, out float distance)) return;
-            Vector3 world = ray.GetPoint(distance);
-            Collider2D hit = Physics2D.OverlapPoint(world);
-            if (hit == null || !viewsByCollider.TryGetValue(hit.GetInstanceID(), out ColonyTileView view)) return;
-            view.TryClick();
+            RaycastHit2D[] hits2D = Physics2D.GetRayIntersectionAll(ray);
+            if (hits2D != null && hits2D.Length > 0)
+            {
+                for (int i = 0; i < hits2D.Length; i++)
+                {
+                    Collider2D col = hits2D[i].collider;
+                    if (col == null) continue;
+                    if (!viewsByCollider.TryGetValue(col.GetInstanceID(), out ColonyTileView view))
+                    {
+                        view = col.GetComponentInParent<ColonyTileView>();
+                    }
+                    if (view != null && view.TryClick())
+                    {
+                        return;
+                    }
+                }
+            }
+
+            // Check 2: 2D Screen-to-World Overlap
+            Vector3 clickPos = new Vector3(screenPosition.x, screenPosition.y, Mathf.Abs(gameplayCamera.transform.position.z - transform.position.z));
+            Vector3 world = gameplayCamera.ScreenToWorldPoint(clickPos);
+            Collider2D[] hits = Physics2D.OverlapPointAll((Vector2)world);
+            if (hits != null && hits.Length > 0)
+            {
+                for (int i = 0; i < hits.Length; i++)
+                {
+                    Collider2D hit = hits[i];
+                    if (hit == null) continue;
+                    if (!viewsByCollider.TryGetValue(hit.GetInstanceID(), out ColonyTileView view))
+                    {
+                        view = hit.GetComponentInParent<ColonyTileView>();
+                    }
+                    if (view != null && view.TryClick())
+                    {
+                        return;
+                    }
+                }
+            }
         }
 
         private static bool TryGetPointerDown(out Vector2 position)
@@ -128,6 +192,11 @@ namespace ColonyFlow
             if (Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame)
             {
                 position = Mouse.current.position.ReadValue();
+                return true;
+            }
+            if (Pointer.current != null && Pointer.current.press.wasPressedThisFrame)
+            {
+                position = Pointer.current.position.ReadValue();
                 return true;
             }
             position = default;
@@ -145,7 +214,7 @@ namespace ColonyFlow
                 if (column.Remove(tile)) return;
         }
 
-        private void RefreshColumns()
+        private void RefreshColumns(bool initial = false)
         {
             for (int columnIndex = 0; columnIndex < columns.Count; columnIndex++)
             {
@@ -153,17 +222,50 @@ namespace ColonyFlow
                 for (int rowIndex = 0; rowIndex < column.Count; rowIndex++)
                 {
                     ColonyTile tile = column[rowIndex];
-                    // Only the front box of each column is selectable. Once it is
-                    // removed, the next box in that same column advances forward.
-                    tile.SetColumnAvailability(rowIndex == 0);
-                    if (tile.View != null)
+                    bool isVisible = rowIndex < visibleRows;
+                    bool isFront = rowIndex == 0;
+
+                    // Only the front box of each column is selectable
+                    tile.SetColumnAvailability(isFront);
+
+                    if (isVisible)
                     {
-                        tile.View.SetBoardVisible(rowIndex < visibleRows);
-                        bool isFront = rowIndex == 0;
+                        if (tile.View == null)
+                        {
+                            Vector3 spawnPos = initial 
+                                ? GetWorldPosition(columnIndex, rowIndex) 
+                                : GetWorldPosition(columnIndex, rowIndex + 1);
+
+                            ColonyTileView view = SimplePool.Spawn(tilePrefab, spawnPos, Quaternion.identity, transform);
+                            Color tileColor = (level != null && level.palette != null) 
+                                ? level.palette.GetColor(tile.ColorIndex) 
+                                : Color.white;
+                            view.Bind(tile, this, tileColor);
+                            if (view.CachedCollider != null)
+                            {
+                                viewsByCollider[view.CachedCollider.GetInstanceID()] = view;
+                            }
+                        }
+
                         float emphasis = isFront ? 1.04f : 1f;
                         tile.View.TF.localScale = new Vector3(tileSize.x * emphasis, tileSize.y * emphasis, 1f);
                         tile.View.SetEmphasis(isFront);
+                        tile.View.SetBoardVisible(true);
                         tile.View.MoveTo(GetWorldPosition(columnIndex, rowIndex));
+                    }
+                    else
+                    {
+                        // Any tile beyond visibleRows must NOT have an active view
+                        if (tile.View != null)
+                        {
+                            if (tile.View.CachedCollider != null)
+                            {
+                                viewsByCollider.Remove(tile.View.CachedCollider.GetInstanceID());
+                            }
+                            tile.View.DetachColony();
+                            SimplePool.Despawn(tile.View);
+                            tile.View = null;
+                        }
                     }
                 }
             }

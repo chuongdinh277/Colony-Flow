@@ -66,7 +66,7 @@ namespace ColonyFlow
                     returnRoute.Add(pixelBoard.ProjectToGameplayPlane(returnWaypoints[i]));
             waypointIndex = 0;
             returnWaypointIndex = Mathf.Clamp(returnDestinationIndex, 0, Mathf.Max(0, route.Count - 1));
-            returnRouteIndex = Mathf.Min(1, Mathf.Max(0, returnRoute.Count - 1));
+            returnRouteIndex = 0;
             attackTimer = attackDuration;
             pickedUp = false;
             if (antVisual != null) antVisual.SetColor(color);
@@ -185,6 +185,8 @@ namespace ColonyFlow
             route.Clear();
             returnRoute.Clear();
             State = AntState.Inactive;
+            TF.localScale = Vector3.one;
+            if (spriteAntRoot != null) spriteAntRoot.localRotation = Quaternion.identity;
         }
 
         private void ReleaseCarriedBox()

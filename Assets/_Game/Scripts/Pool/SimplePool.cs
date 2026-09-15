@@ -8,6 +8,7 @@ namespace ColonyFlow
         private sealed class Pool
         {
             private readonly Queue<GameUnit> inactive = new();
+            private readonly HashSet<GameUnit> inactiveSet = new();
             private readonly HashSet<GameUnit> active = new();
             private readonly GameUnit prefab;
             private readonly Transform root;
@@ -25,8 +26,19 @@ namespace ColonyFlow
             public GameUnit Spawn(Vector3 position, Quaternion rotation, Transform parent)
             {
                 GameUnit unit = null;
-                while (inactive.Count > 0 && unit == null) unit = inactive.Dequeue();
-                if (unit == null) unit = Object.Instantiate(prefab, root);
+                while (inactive.Count > 0 && unit == null)
+                {
+                    unit = inactive.Dequeue();
+                    if (unit != null) inactiveSet.Remove(unit);
+                }
+                if (unit == null)
+                {
+                    unit = Object.Instantiate(prefab, root);
+                }
+                else
+                {
+                    inactiveSet.Remove(unit);
+                }
 
                 unit.PoolKey = key;
                 unit.gameObject.SetActive(false);
@@ -42,6 +54,7 @@ namespace ColonyFlow
             {
                 if (unit == null) return;
                 active.Remove(unit);
+                if (!inactiveSet.Add(unit)) return; // Already inactive in pool, ignore duplicate despawn
                 unit.gameObject.SetActive(false);
                 unit.TF.SetParent(root, false);
                 inactive.Enqueue(unit);

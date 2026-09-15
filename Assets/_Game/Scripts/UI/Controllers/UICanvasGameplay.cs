@@ -40,7 +40,6 @@ public class UICanvasGameplay : UICanvas
     private Image speedBadgeImage;
     private Coroutine speedBounceCoroutine;
     private readonly Dictionary<Image, Image> occupiedTrayVisuals = new();
-    private readonly Dictionary<Image, TextMeshProUGUI> centeredTrayLabels = new();
 
     public event Action<int> BoosterClicked;
 
@@ -81,13 +80,17 @@ public class UICanvasGameplay : UICanvas
         speedIndex = currentSpeed >= 1.5f ? 1 : 0;
         ApplySpeed(speeds[speedIndex], false);
 
+        EnsureBoosterButtons();
+        EnsureTraySlots();
+        UpdateBoosterBadges();
+
         for (int i = 0; i < btnBoosters.Length; i++)
         {
             if (btnBoosters[i] != null)
             {
                 int index = i;
                 btnBoosters[i].onClick.RemoveAllListeners();
-                btnBoosters[i].onClick.AddListener(() => BoosterClicked?.Invoke(index));
+                btnBoosters[i].onClick.AddListener(() => OnBoosterClicked(index));
             }
         }
         
@@ -100,6 +103,14 @@ public class UICanvasGameplay : UICanvas
                 OnLevelLoaded(LevelManager.Ins.CurrentLevelIndex, LevelManager.Ins.CurrentLevel);
             }
         }
+    }
+
+    public override void Open()
+    {
+        base.Open();
+        EnsureBoosterButtons();
+        EnsureTraySlots();
+        UpdateBoosterBadges();
     }
 
     /// <summary>
@@ -299,16 +310,234 @@ public class UICanvasGameplay : UICanvas
         return null;
     }
 
+    private void EnsureBoosterButtons()
+    {
+        for (int i = 0; i < btnBoosters.Length; i++)
+        {
+            if (btnBoosters[i] == null)
+            {
+                Transform found = FindDeepChild(transform, $"Booster_{i}");
+                if (found != null) btnBoosters[i] = found.GetComponent<Button>();
+            }
+        }
+    }
+
+    private void EnsureTraySlots()
+    {
+        if (traySlotsContainer == null)
+        {
+            traySlotsContainer = FindDeepChild(transform, "TrayContainer");
+        }
+
+        if (imgTraySlots == null || imgTraySlots.Count == 0)
+        {
+            imgTraySlots = new List<Image>();
+            if (traySlotsContainer != null)
+            {
+                for (int i = 0; i < traySlotsContainer.childCount; i++)
+                {
+                    Transform child = traySlotsContainer.GetChild(i);
+                    Image img = child.GetComponent<Image>();
+                    if (img != null)
+                    {
+                        imgTraySlots.Add(img);
+                    }
+                }
+            }
+        }
+
+        if (traySlotPrefab == null && imgTraySlots.Count > 0)
+        {
+            traySlotPrefab = imgTraySlots[0];
+        }
+    }
+
+    public void UpdateBoosterBadges()
+    {
+        if (BoosterManager.Ins == null) return;
+
+        BoosterType[] types = { BoosterType.Shovel, BoosterType.Shuffle, BoosterType.Magnet, BoosterType.Bomb };
+        for (int i = 0; i < btnBoosters.Length && i < types.Length; i++)
+        {
+            if (btnBoosters[i] == null) continue;
+            int count = BoosterManager.Ins.GetBoosterCount(types[i]);
+
+            Text txt = null;
+            TextMeshProUGUI tmp = null;
+            Transform badge = btnBoosters[i].transform.Find("Badge");
+            if (badge != null)
+            {
+                Transform amountObj = badge.Find("Amount");
+                if (amountObj != null)
+                {
+                    txt = amountObj.GetComponent<Text>();
+                    tmp = amountObj.GetComponent<TextMeshProUGUI>();
+                }
+            }
+            if (txt == null && tmp == null)
+            {
+                txt = btnBoosters[i].GetComponentInChildren<Text>(true);
+                tmp = btnBoosters[i].GetComponentInChildren<TextMeshProUGUI>(true);
+            }
+
+            if (txt != null) txt.text = count.ToString();
+            if (tmp != null) tmp.text = count.ToString();
+        }
+    }
+
+    private void ResetTraySlotsToDefault()
+    {
+        EnsureTraySlots();
+        int defaultCapacity = 5;
+        if (LevelManager.Ins != null && LevelManager.Ins.CurrentLevel != null && LevelManager.Ins.CurrentLevel.trayCapacity > 0)
+        {
+            defaultCapacity = LevelManager.Ins.CurrentLevel.trayCapacity;
+        }
+
+        while (imgTraySlots.Count > defaultCapacity)
+        {
+            int lastIndex = imgTraySlots.Count - 1;
+            Image extra = imgTraySlots[lastIndex];
+            imgTraySlots.RemoveAt(lastIndex);
+            if (extra != null)
+            {
+                Destroy(extra.gameObject);
+            }
+        }
+
+        if (traySlotsContainer is RectTransform rt)
+        {
+            Canvas.ForceUpdateCanvases();
+            LayoutRebuilder.ForceRebuildLayoutImmediate(rt);
+        }
+    }
+
+    private void OnBoosterClicked(int index)
+    {
+        BoosterClicked?.Invoke(index);
+
+        if (index == 0) // Booster 0: Shovel (Add slot from 5 to 6)
+        {
+            TryUseAddSlotBooster();
+        }
+    }
+
+    public void TryUseAddSlotBooster()
+    {
+        ColonyTray tray = LevelManager.Ins?.Controller?.Tray;
+        // Check if tray is already at 6 or more slots
+        if ((tray != null && tray.Slots.Count >= 6) || imgTraySlots.Count >= 6)
+        {
+            Debug.Log("[Booster] Khay đã đạt tối đa 6 ô!");
+            SoundManager.Ins?.PlayUIFx(UIFxID.ButtonClick);
+            return;
+        }
+
+        // Use booster item from BoosterManager
+        if (BoosterManager.Ins != null)
+        {
+            int currentCount = BoosterManager.Ins.GetBoosterCount(BoosterType.Shovel);
+            if (currentCount <= 0)
+            {
+                Debug.Log("[Booster] Hết booster Thêm Khay (Shovel)!");
+                SoundManager.Ins?.PlayUIFx(UIFxID.ButtonClick);
+                return;
+            }
+            BoosterManager.Ins.UseBooster(BoosterType.Shovel);
+        }
+
+        // 1. Add extra slot in UI
+        AddExtraUISlot();
+
+        // 2. Add extra slot to ColonyTray logic
+        if (tray != null)
+        {
+            tray.AddExtraSlot(1);
+        }
+
+        // 3. Immediately refresh existing tray box positions so all occupied boxes re-center smoothly
+        if (LevelManager.Ins != null && LevelManager.Ins.Controller != null)
+        {
+            LevelManager.Ins.Controller.RefreshTraySlotPositions();
+        }
+
+        // 4. Update badge display
+        UpdateBoosterBadges();
+
+        // 5. Play sound and button bounce effect
+        SoundManager.Ins?.PlayUIFx(UIFxID.ButtonClick);
+        if (btnBoosters[0] != null)
+        {
+            StartCoroutine(AnimateBoosterBounce(btnBoosters[0].transform));
+        }
+    }
+
+    private System.Collections.IEnumerator AnimateBoosterBounce(Transform t)
+    {
+        Vector3 orig = Vector3.one;
+        float d1 = 0.08f;
+        float el = 0f;
+        while (el < d1)
+        {
+            el += Time.unscaledDeltaTime;
+            t.localScale = Vector3.Lerp(orig, orig * 1.2f, el / d1);
+            yield return null;
+        }
+        float d2 = 0.12f;
+        el = 0f;
+        while (el < d2)
+        {
+            el += Time.unscaledDeltaTime;
+            t.localScale = Vector3.Lerp(orig * 1.2f, orig, el / d2);
+            yield return null;
+        }
+        t.localScale = orig;
+    }
+
     public void AddExtraUISlot()
     {
+        EnsureTraySlots();
         if (traySlotPrefab == null || traySlotsContainer == null)
         {
             Debug.LogError("Vui lòng gán Prefab và Container cho Tray Slot trên Inspector!");
             return;
         }
-        
+
         Image newSlot = Instantiate(traySlotPrefab, traySlotsContainer);
+        newSlot.gameObject.name = $"UI_TraySlot ({imgTraySlots.Count})";
+        newSlot.gameObject.SetActive(true);
+
+        // Hide any authored placeholder texts inside cloned slot
+        TextMeshProUGUI authoredTmp = newSlot.GetComponentInChildren<TextMeshProUGUI>(true);
+        if (authoredTmp != null) authoredTmp.gameObject.SetActive(false);
+        Text authoredTxt = newSlot.GetComponentInChildren<Text>(true);
+        if (authoredTxt != null) authoredTxt.gameObject.SetActive(false);
+
         imgTraySlots.Add(newSlot);
+
+        if (traySlotsContainer is RectTransform rt)
+        {
+            Canvas.ForceUpdateCanvases();
+            LayoutRebuilder.ForceRebuildLayoutImmediate(rt);
+        }
+
+        StartCoroutine(AnimateSlotPopIn(newSlot.transform));
+    }
+
+    private System.Collections.IEnumerator AnimateSlotPopIn(Transform t)
+    {
+        float duration = 0.22f;
+        float elapsed = 0f;
+        t.localScale = Vector3.zero;
+        while (elapsed < duration)
+        {
+            elapsed += Time.unscaledDeltaTime;
+            float progress = Mathf.Clamp01(elapsed / duration);
+            float scale = Mathf.Sin(progress * Mathf.PI * 0.5f) * 1.08f;
+            t.localScale = Vector3.one * scale;
+            yield return null;
+        }
+        t.localScale = Vector3.one;
     }
 
     private void Update()
@@ -321,46 +550,8 @@ public class UICanvasGameplay : UICanvas
             ColonyController colony = tray != null && i < tray.Slots.Count ? tray.Slots[i].Colony : null;
             Image slotImage = imgTraySlots[i];
             
-            if (!centeredTrayLabels.TryGetValue(slotImage, out TextMeshProUGUI amount))
-            {
-                TextMeshProUGUI authored = slotImage.GetComponentInChildren<TextMeshProUGUI>(true);
-                if (authored != null) authored.gameObject.SetActive(false);
-                GameObject label = new GameObject("CenteredCount", typeof(RectTransform), typeof(CanvasRenderer), typeof(TextMeshProUGUI), typeof(Canvas));
-                Canvas labelCanvas = label.GetComponent<Canvas>();
-                labelCanvas.overrideSorting = true;
-                labelCanvas.sortingOrder = 5;
-                amount = label.GetComponent<TextMeshProUGUI>();
-                amount.rectTransform.SetParent(slotImage.transform, false);
-                if (authored != null) amount.font = authored.font;
-                amount.raycastTarget = false;
-                centeredTrayLabels.Add(slotImage, amount);
-            }
-            if (amount != null)
-            {
-                amount.text = colony == null ? string.Empty : colony.RemainingCount.ToString();
-                amount.color = colony != null && colony.DisplayColor.grayscale > .65f ? new Color(.15f,.12f,.18f,1f) : Color.white;
-                amount.alignment = TextAlignmentOptions.Center;
-                amount.fontStyle = FontStyles.Bold;
-                amount.enableAutoSizing = false;
-                amount.fontSize = 44f;
-                amount.textWrappingMode = TextWrappingModes.NoWrap;
-                amount.overflowMode = TextOverflowModes.Overflow;
-                amount.outlineWidth = .18f;
-                amount.outlineColor = colony != null && colony.DisplayColor.grayscale > .65f
-                    ? new Color32(255, 255, 255, 150)
-                    : new Color32(35, 25, 45, 210);
-                RectTransform amountRect = amount.rectTransform;
-                amountRect.anchorMin = new Vector2(.5f, .5f);
-                amountRect.anchorMax = new Vector2(.5f, .5f);
-                amountRect.pivot = new Vector2(.5f, .5f);
-                Vector2 slotSize = slotImage.rectTransform.rect.size;
-                amountRect.sizeDelta = new Vector2(Mathf.Max(70f, slotSize.x), Mathf.Max(70f, slotSize.y));
-                amountRect.anchoredPosition = new Vector2(0f, 9f);
-                amountRect.localPosition = new Vector3(amountRect.localPosition.x, amountRect.localPosition.y, -75f);
-                amountRect.localScale = Vector3.one;
-                amountRect.localRotation = Quaternion.identity;
-                amountRect.SetAsLastSibling();
-            }
+            TextMeshProUGUI authored = slotImage.GetComponentInChildren<TextMeshProUGUI>(true);
+            if (authored != null && authored.gameObject.activeSelf) authored.gameObject.SetActive(false);
             
             // Keep the UI slot visible so the 3D box overlaps it
             
@@ -393,6 +584,8 @@ public class UICanvasGameplay : UICanvas
 
     private void OnLevelLoaded(int index, LevelData unused)
     {
+        ResetTraySlotsToDefault();
+        UpdateBoosterBadges();
         if (txtLevel != null)
         {
             txtLevel.text = "Level " + index;

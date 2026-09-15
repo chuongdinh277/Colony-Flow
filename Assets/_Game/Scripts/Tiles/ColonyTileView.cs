@@ -2,7 +2,7 @@ using UnityEngine;
 
 namespace ColonyFlow
 {
-    public sealed class ColonyTileView : GameUnit
+    public sealed class ColonyTileView : GameUnit, UnityEngine.EventSystems.IPointerDownHandler
     {
         [SerializeField] private MeshRenderer faceRenderer;
         [SerializeField] private MeshRenderer depthRenderer;
@@ -16,14 +16,93 @@ namespace ColonyFlow
         private static readonly int BaseColor=Shader.PropertyToID("_BaseColor"), ColorId=Shader.PropertyToID("_Color");
         private MaterialPropertyBlock faceBlock, depthBlock;
         private ColonyTile tile; private ColonyTileBoard owner; private Color displayColor; private Vector3 targetPosition; private bool boardVisible=true;
-        public BoxCollider2D CachedCollider=>cachedCollider;
+        private ColonyController boundColony;
+        public BoxCollider2D CachedCollider
+        {
+            get
+            {
+                if (cachedCollider == null)
+                {
+                    cachedCollider = GetComponent<BoxCollider2D>();
+                    if (cachedCollider == null)
+                    {
+                        cachedCollider = gameObject.AddComponent<BoxCollider2D>();
+                        cachedCollider.size = new Vector2(1.2f, 1.2f);
+                    }
+                }
+                return cachedCollider;
+            }
+        }
 
         public void Configure(MeshRenderer face,MeshRenderer depth,TextMesh label,BoxCollider2D collider)
         {faceRenderer=face;depthRenderer=depth;countLabel=label;cachedCollider=collider;spriteRenderer=null;}
         public void Configure(SpriteRenderer renderer,BoxCollider2D collider)
         {spriteRenderer=renderer;cachedCollider=collider;if(spriteRenderer.sprite==null)spriteRenderer.sprite=RuntimeSprite.Square;spriteRenderer.sortingOrder=30;}
         public void Bind(ColonyTile model,ColonyTileBoard board,Color color)
-        {tile=model;owner=board;displayColor=color;targetPosition=TF.position;model.View=this;EnsureLayeredSpriteVisual();EnsureLabel();Refresh();}
+        {
+            DetachColony();
+            tile=model;
+            owner=board;
+            displayColor=color;
+            targetPosition=TF.position;
+            model.View=this;
+            boardVisible=true;
+            if(CachedCollider!=null)
+            {
+                CachedCollider.enabled=true;
+                CachedCollider.size=new Vector2(1.2f, 1.2f);
+            }
+            SetEmphasis(false);
+            EnsureLabel();
+            EnsureLayeredSpriteVisual();
+            Refresh();
+        }
+
+        public void AttachColony(ColonyController colony)
+        {
+            boardVisible = true;
+            if (boundColony != null)
+            {
+                boundColony.RemainingCountChanged -= OnColonyCountChanged;
+            }
+            boundColony = colony;
+            if (boundColony != null)
+            {
+                boundColony.RemainingCountChanged += OnColonyCountChanged;
+            }
+            Refresh();
+        }
+
+        public void DetachColony()
+        {
+            if (boundColony != null)
+            {
+                boundColony.RemainingCountChanged -= OnColonyCountChanged;
+                boundColony = null;
+            }
+        }
+
+        private void OnColonyCountChanged(int count)
+        {
+            UpdateCount(count);
+        }
+
+        public void UpdateCount(int count)
+        {
+            if (countLabel != null)
+            {
+                countLabel.text = count.ToString();
+                countLabel.gameObject.SetActive(true);
+            }
+        }
+
+        private void OnDisable()
+        {
+            DetachColony();
+            tile = null;
+            owner = null;
+        }
+
         public void Refresh()
         {
             if (tile == null) return;
@@ -37,13 +116,15 @@ namespace ColonyFlow
             if (layeredGloss != null) layeredGloss.enabled = false;
             if (countLabel != null) 
             {
-                countLabel.text = tile.Hidden && tile.State == TileState.Locked ? "?" : tile.Count.ToString();
+                int displayCount = boundColony != null ? boundColony.RemainingCount : tile.Count;
+                countLabel.text = tile.Hidden && tile.State == TileState.Locked ? "?" : displayCount.ToString();
                 countLabel.color = color.grayscale > .68f ? new Color32(49, 42, 58, 255) : Color.white;
-                countLabel.gameObject.SetActive(tile.State != TileState.InTray);
+                countLabel.gameObject.SetActive(true);
             }
         }
-        public bool TryClick()=>tile!=null&&tile.State==TileState.Available&&owner.TrySelect(tile.Id);
-        private void OnMouseDown()=>TryClick();
+        public bool TryClick() => tile != null && tile.State == TileState.Available && owner != null && owner.TrySelect(tile.Id);
+        public void OnPointerDown(UnityEngine.EventSystems.PointerEventData eventData) => TryClick();
+        private void OnMouseDown() => TryClick();
         public void MoveTo(Vector3 worldPosition) => targetPosition = worldPosition;
         public Vector3 TargetPosition => targetPosition;
         public void SetBoardVisible(bool visible) { boardVisible = visible; Refresh(); }
@@ -71,13 +152,23 @@ namespace ColonyFlow
             if(countLabel!=null)
             {
                 MeshRenderer existingRenderer=countLabel.GetComponent<MeshRenderer>();
-                if(existingRenderer!=null)existingRenderer.sortingOrder=32;
+                if(existingRenderer!=null)
+                {
+                    existingRenderer.enabled=true;
+                    existingRenderer.sortingOrder=32;
+                }
                 countLabel.transform.localPosition=new Vector3(0,0,-.16f);
+                countLabel.gameObject.SetActive(true);
                 return;
             }
-            GameObject labelObject=new("Count");labelObject.transform.SetParent(transform,false);labelObject.transform.localPosition=new Vector3(0,0,-.56f);
+            GameObject labelObject=new("Count");labelObject.transform.SetParent(transform,false);labelObject.transform.localPosition=new Vector3(0,0,-.16f);
             countLabel=labelObject.AddComponent<TextMesh>();countLabel.anchor=TextAnchor.MiddleCenter;countLabel.alignment=TextAlignment.Center;countLabel.fontSize=64;countLabel.characterSize=.065f;countLabel.fontStyle=FontStyle.Bold;
-            countLabel.GetComponent<MeshRenderer>().sortingOrder=32;
+            MeshRenderer mr=countLabel.GetComponent<MeshRenderer>();
+            if(mr!=null)
+            {
+                mr.enabled=true;
+                mr.sortingOrder=32;
+            }
         }
 
         private void EnsureLayeredSpriteVisual()

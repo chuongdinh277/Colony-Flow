@@ -105,11 +105,24 @@ namespace ColonyFlow
         public void Shutdown()
         {
             IsRunning = false;
-            if (tileBoard != null) tileBoard.TileSelected -= OnTileSelected;
+            if (tileBoard != null)
+            {
+                tileBoard.TileSelected -= OnTileSelected;
+                tileBoard.ClearBoard();
+            }
             if (tray != null) tray.ColonyCompleted -= OnColonyCompleted;
             if (antManager != null) antManager.CancelAll();
             if (fpsManager != null) fpsManager.Clear();
             if (pixelBoard != null) pixelBoard.Clear();
+            foreach (var kvp in colonyTiles)
+            {
+                if (kvp.Value?.View != null)
+                {
+                    kvp.Value.View.DetachColony();
+                    SimplePool.Despawn(kvp.Value.View);
+                    kvp.Value.View = null;
+                }
+            }
             colonyTiles.Clear();
             deadlockTimer = 0f;
         }
@@ -170,6 +183,7 @@ namespace ColonyFlow
                 colonyTiles[colony] = tile;
                 if (tile.View != null)
                 {
+                    tile.View.AttachColony(colony);
                     tile.View.MoveTo(slot.transform.position);
                 }
             }
@@ -179,7 +193,29 @@ namespace ColonyFlow
         private void OnColonyCompleted(ColonyController colony)
         {
             if (!colonyTiles.Remove(colony, out ColonyTile tile)) return;
+            if (tile != null && tile.View != null)
+            {
+                tile.View.DetachColony();
+                SimplePool.Despawn(tile.View);
+                tile.View = null;
+            }
             tileBoard.MarkCompleted(tile);
+        }
+
+        public void RefreshTraySlotPositions()
+        {
+            if (tray == null) return;
+            for (int i = 0; i < tray.Slots.Count; i++)
+            {
+                ColonySlot slot = tray.Slots[i];
+                if (slot != null && !slot.IsEmpty && slot.Colony != null)
+                {
+                    if (colonyTiles.TryGetValue(slot.Colony, out ColonyTile tile) && tile != null && tile.View != null)
+                    {
+                        tile.View.MoveTo(slot.transform.position);
+                    }
+                }
+            }
         }
 
         private void EnsureSystems()

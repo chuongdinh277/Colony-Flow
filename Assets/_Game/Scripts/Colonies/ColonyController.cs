@@ -35,6 +35,7 @@ namespace ColonyFlow
         public int ActiveAntCount => activeAnts.Count;
         public Color DisplayColor => palette.GetColor(ColorIndex);
         public bool IsReady { get; set; } = false;
+        public event Action<int> RemainingCountChanged;
 
         public ColonyController(int colorIndex, int count, PixelBoard board, AntRouteService routeService,
             AntManager antManager, FPSManager fpsManager, PixelPalette palette, int maxConcurrentAnts, float antSpawnInterval, Vector3 spawnPosition,
@@ -69,6 +70,7 @@ namespace ColonyFlow
                     activeAnts.Add(ant);
                     // Update remaining count immediately when the ant emerges from the box/cave
                     RemainingCount--;
+                    RemainingCountChanged?.Invoke(RemainingCount);
                     if (RemainingCount <= 0)
                     {
                         State = ColonyState.Completed;

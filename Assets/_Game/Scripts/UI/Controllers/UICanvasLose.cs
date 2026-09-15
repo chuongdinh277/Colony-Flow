@@ -85,16 +85,26 @@ public class UICanvasLose : UICanvas
 
         if (GameManager.Ins != null)
         {
-            GameManager.Ins.ResetMatch(false);
-            GameManager.ChangeState(GameState.Playing);
+            GameManager.Ins.Pause(false);
         }
-        else if (LevelManager.Ins != null)
-        {
-            LevelManager.Ins.ReloadLevel();
-        }
-
+        Time.timeScale = 1f;
         CloseDirectly();
-        UICanvasGameplay.Show();
+
+        UICanvasLoading.ShowWithAction(0.8f, () =>
+        {
+            if (GameManager.Ins != null)
+            {
+                GameManager.Ins.ResetMatch(false);
+                GameManager.ChangeState(GameState.Playing);
+            }
+            else if (LevelManager.Ins != null)
+            {
+                LevelManager.Ins.ReloadLevel();
+            }
+        }, () =>
+        {
+            UICanvasGameplay.Show();
+        });
     }
 
     private void OnHomeClicked()
