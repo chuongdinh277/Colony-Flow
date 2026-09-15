@@ -36,6 +36,51 @@ namespace ColonyFlow
             fxSource.playOnAwake = false;
             IsMusicOn = PlayerPrefs.GetInt(MusicSettingKey, 1) != 0;
             IsFxOn = PlayerPrefs.GetInt(FxSettingKey, 1) != 0;
+            // Đảm bảo có đúng 1 AudioListener trong scene
+            if (FindFirstObjectByType<AudioListener>() == null)
+                gameObject.AddComponent<AudioListener>();
+            AutoLoadClips();
+        }
+
+        /// <summary>
+        /// Auto-load AudioClips from Resources/Sound if not assigned in Inspector.
+        /// Layout:
+        ///   musicClips[0]  = BGM_Menu     -> music.mp3
+        ///   musicClips[1]  = BGM_Gameplay -> music.mp3
+        ///   gameFxClips[0] = Win          -> PickUp.mp3
+        ///   gameFxClips[1] = Lose         -> PickUp.mp3
+        ///   gameFxClips[2] = BoxCollected -> PickUp.mp3
+        ///   gameFxClips[3] = AntSpawn     -> null (silent)
+        ///   uiFxClips[0]   = ButtonClick  -> booster.mp3
+        /// </summary>
+        private void AutoLoadClips()
+        {
+            AudioClip musicClip   = Resources.Load<AudioClip>("Sound/music");
+            AudioClip pickupClip  = Resources.Load<AudioClip>("Sound/PickUp");
+            AudioClip boosterClip = Resources.Load<AudioClip>("Sound/booster");
+
+            // BGM
+            if (musicClips == null || musicClips.Length < 2)
+                musicClips = new AudioClip[2];
+            if (musicClips[0] == null) musicClips[0] = musicClip;
+            if (musicClips[1] == null) musicClips[1] = musicClip;
+
+            // Game FX
+            if (gameFxClips == null || gameFxClips.Length < 4)
+            {
+                AudioClip[] old = gameFxClips;
+                gameFxClips = new AudioClip[4];
+                if (old != null) for (int i = 0; i < Mathf.Min(old.Length, 4); i++) gameFxClips[i] = old[i];
+            }
+            if (gameFxClips[0] == null) gameFxClips[0] = pickupClip;  // Win
+            if (gameFxClips[1] == null) gameFxClips[1] = pickupClip;  // Lose
+            if (gameFxClips[2] == null) gameFxClips[2] = pickupClip;  // BoxCollected
+            // gameFxClips[3] AntSpawn: null = silent
+
+            // UI FX
+            if (uiFxClips == null || uiFxClips.Length < 1)
+                uiFxClips = new AudioClip[1];
+            if (uiFxClips[0] == null) uiFxClips[0] = boosterClip;     // ButtonClick
         }
 
         public void PlayMusic(SoundID id)
@@ -62,6 +107,7 @@ namespace ColonyFlow
             IsMusicOn = enabled;
             PlayerPrefs.SetInt(MusicSettingKey, enabled ? 1 : 0);
             if (!enabled) musicSource.Stop();
+            else PlayMusic(SoundID.BGM_Gameplay);
         }
 
         public void SetFxEnabled(bool enabled)

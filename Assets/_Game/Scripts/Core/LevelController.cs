@@ -221,6 +221,7 @@ namespace ColonyFlow
                 tile.View = null;
             }
             tileBoard.MarkCompleted(tile);
+            SoundManager.Ins?.PlayGameFx(GameFxID.BoxCollected);
         }
 
         public void RefreshTraySlotPositions()

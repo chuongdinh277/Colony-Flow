@@ -5,8 +5,10 @@ namespace ColonyFlow
     public sealed class FpsCounter : MonoBehaviour
     {
         [SerializeField, Min(0.1f)] private float refreshInterval = 0.25f;
-        [SerializeField] private Vector2 margin = new(14f, 12f);
-        [SerializeField] private Vector2 size = new(116f, 42f);
+        [SerializeField] private Vector2 size = new(110f, 36f);
+        // Góc hiển thị: TopLeft=0, TopRight=1, BottomLeft=2, BottomRight=3
+        [SerializeField] private int corner = 1;
+        [SerializeField] private Vector2 margin = new(12f, 12f);
 
         private GUIStyle style;
         private float elapsed;
@@ -32,13 +34,29 @@ namespace ColonyFlow
         private void OnGUI()
         {
             EnsureStyle();
-            Rect safe = Screen.safeArea;
-            var rect = new Rect(
-                safe.xMax - size.x - margin.x,
-                Screen.height - safe.yMax + margin.y,
-                size.x,
-                size.y);
-            GUI.Label(rect, label, style);
+
+            float x, y;
+            switch (corner)
+            {
+                case 0: // Top-Left
+                    x = margin.x;
+                    y = margin.y;
+                    break;
+                case 1: // Top-Right
+                    x = Screen.width - size.x - margin.x;
+                    y = margin.y;
+                    break;
+                case 2: // Bottom-Left
+                    x = margin.x;
+                    y = Screen.height - size.y - margin.y;
+                    break;
+                default: // Bottom-Right
+                    x = Screen.width - size.x - margin.x;
+                    y = Screen.height - size.y - margin.y;
+                    break;
+            }
+
+            GUI.Label(new Rect(x, y, size.x, size.y), label, style);
         }
 
         private void EnsureStyle()
@@ -47,10 +65,28 @@ namespace ColonyFlow
             style = new GUIStyle(GUI.skin.box)
             {
                 alignment = TextAnchor.MiddleCenter,
-                fontSize = 22,
+                fontSize = 20,
                 fontStyle = FontStyle.Bold,
-                normal = { textColor = Color.white }
+                normal = { textColor = Color.white, background = MakeTex(1, 1, new Color(0f, 0f, 0f, 0.45f)) }
             };
+        }
+
+        private static Texture2D MakeTex(int w, int h, Color col)
+        {
+            var tex = new Texture2D(w, h);
+            tex.SetPixel(0, 0, col);
+            tex.Apply();
+            return tex;
+        }
+
+        // Tự tạo FpsCounter nếu chưa có trong scene
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
+        private static void AutoCreate()
+        {
+            if (FindFirstObjectByType<FpsCounter>() != null) return;
+            var go = new GameObject("FpsCounter");
+            DontDestroyOnLoad(go);
+            go.AddComponent<FpsCounter>();
         }
     }
 }

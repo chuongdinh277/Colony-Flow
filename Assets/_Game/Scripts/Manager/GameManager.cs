@@ -57,7 +57,7 @@ namespace ColonyFlow
             
             if (SoundManager.Ins != null)
             {
-                // SoundManager.Ins.PlaySound(SoundID.BGM_Menu);
+                SoundManager.Ins.PlayMusic(SoundID.BGM_Menu);
             }
         }
 

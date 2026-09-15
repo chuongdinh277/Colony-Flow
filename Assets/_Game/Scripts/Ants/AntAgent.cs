@@ -145,7 +145,12 @@ namespace ColonyFlow
             {
                 if (board.TryCollectPixel(target, this, out carriedBox))
                 {
-                    if (carriedBox != null) carriedBox.BeginCarry(TF, board.CellSize);
+                    if (carriedBox != null)
+                    {
+                        carriedBox.BeginCarry(TF, board.CellSize);
+                        Color pixelColor = visibleAntRenderer != null ? visibleAntRenderer.color : Color.white;
+                        PixelPickupFx.Ins.PlayAt(carriedBox.TF.position, pixelColor);
+                    }
                     pickedUp = true;
                 }
                 else

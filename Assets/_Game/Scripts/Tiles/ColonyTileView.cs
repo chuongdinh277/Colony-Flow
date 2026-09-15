@@ -122,7 +122,13 @@ namespace ColonyFlow
                 countLabel.gameObject.SetActive(true);
             }
         }
-        public bool TryClick() => tile != null && tile.State == TileState.Available && owner != null && owner.TrySelect(tile.Id);
+        public bool TryClick()
+        {
+            if (tile == null || tile.State != TileState.Available || owner == null) return false;
+            bool selected = owner.TrySelect(tile.Id);
+            if (selected) SoundManager.Ins?.PlayUIFx(UIFxID.ButtonClick);
+            return selected;
+        }
         public void OnPointerDown(UnityEngine.EventSystems.PointerEventData eventData) => TryClick();
         private void OnMouseDown() => TryClick();
         public void MoveTo(Vector3 worldPosition) => targetPosition = worldPosition;
