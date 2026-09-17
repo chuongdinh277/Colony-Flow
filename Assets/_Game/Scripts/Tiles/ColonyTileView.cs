@@ -1,4 +1,5 @@
 using UnityEngine;
+using DG.Tweening;
 
 namespace ColonyFlow
 {
@@ -15,7 +16,7 @@ namespace ColonyFlow
         [SerializeField, Min(.1f)] private float shiftSpeed = 7f;
         private static readonly int BaseColor=Shader.PropertyToID("_BaseColor"), ColorId=Shader.PropertyToID("_Color");
         private MaterialPropertyBlock faceBlock, depthBlock;
-        private ColonyTile tile; private ColonyTileBoard owner; private Color displayColor; private Vector3 targetPosition; private bool boardVisible=true;
+        private ColonyTile tile; private ColonyTileBoard owner; private Color displayColor; private Vector3 targetPosition; private bool boardVisible=true; private bool isJumping = false;
         private ColonyController boundColony;
         public BoxCollider2D CachedCollider
         {
@@ -118,7 +119,7 @@ namespace ColonyFlow
             {
                 int displayCount = boundColony != null ? boundColony.RemainingCount : tile.Count;
                 countLabel.text = tile.Hidden && tile.State == TileState.Locked ? "?" : displayCount.ToString();
-                countLabel.color = color.grayscale > .68f ? new Color32(49, 42, 58, 255) : Color.white;
+                countLabel.color = Color.white;
                 countLabel.gameObject.SetActive(true);
             }
         }
@@ -132,6 +133,21 @@ namespace ColonyFlow
         public void OnPointerDown(UnityEngine.EventSystems.PointerEventData eventData) => TryClick();
         private void OnMouseDown() => TryClick();
         public void MoveTo(Vector3 worldPosition) => targetPosition = worldPosition;
+        public void Initialize(Vector3 spawnWorld)
+        {
+            TF.DOKill();
+            TF.position = spawnWorld;
+            targetPosition = spawnWorld;
+            isJumping = false;
+        }
+        public void JumpTo(Vector3 worldPosition)
+        {
+            targetPosition = worldPosition;
+            isJumping = true;
+            TF.DOJump(worldPosition, 3f, 1, 0.4f)
+              .SetEase(Ease.OutQuad)
+              .OnComplete(() => isJumping = false);
+        }
         public Vector3 TargetPosition => targetPosition;
         public void SetBoardVisible(bool visible) { boardVisible = visible; Refresh(); }
         public void SetEmphasis(bool emphasized)
@@ -150,7 +166,13 @@ namespace ColonyFlow
                 countLabel.transform.localPosition=position;
             }
         }
-        private void Update()=>TF.position=Vector3.MoveTowards(TF.position,targetPosition,shiftSpeed*Time.deltaTime);
+        private void Update()
+        {
+            if (!isJumping)
+            {
+                TF.position = Vector3.MoveTowards(TF.position, targetPosition, shiftSpeed * Time.deltaTime);
+            }
+        }
         private static void SetColor(Renderer renderer,Color color,ref MaterialPropertyBlock block)
         {if(renderer==null)return;block??=new MaterialPropertyBlock();block.Clear();block.SetColor(BaseColor,color);block.SetColor(ColorId,color);renderer.SetPropertyBlock(block);}
         private void EnsureLabel()
@@ -165,15 +187,37 @@ namespace ColonyFlow
                 }
                 countLabel.transform.localPosition=new Vector3(0,0,-.16f);
                 countLabel.gameObject.SetActive(true);
+                // Ensure it faces camera
+                if (Camera.main != null)
+                {
+                    countLabel.transform.rotation = Camera.main.transform.rotation;
+                }
                 return;
             }
-            GameObject labelObject=new("Count");labelObject.transform.SetParent(transform,false);labelObject.transform.localPosition=new Vector3(0,0,-.16f);
-            countLabel=labelObject.AddComponent<TextMesh>();countLabel.anchor=TextAnchor.MiddleCenter;countLabel.alignment=TextAlignment.Center;countLabel.fontSize=64;countLabel.characterSize=.065f;countLabel.fontStyle=FontStyle.Bold;
+            GameObject labelObject=new("Count");
+            labelObject.transform.SetParent(transform,false);
+            labelObject.transform.localPosition=new Vector3(0,0,-.16f);
+            
+            countLabel=labelObject.AddComponent<TextMesh>();
+            countLabel.anchor=TextAnchor.MiddleCenter;
+            countLabel.alignment=TextAlignment.Center;
+            
+            // High font size + small scale to make it crisp HD
+            countLabel.fontSize=300;
+            countLabel.characterSize=1f;
+            labelObject.transform.localScale = new Vector3(0.015f, 0.015f, 0.015f);
+            
+            countLabel.fontStyle=FontStyle.Bold;
             MeshRenderer mr=countLabel.GetComponent<MeshRenderer>();
             if(mr!=null)
             {
                 mr.enabled=true;
                 mr.sortingOrder=32;
+            }
+            // Rotate to face camera
+            if (Camera.main != null)
+            {
+                labelObject.transform.rotation = Camera.main.transform.rotation;
             }
         }
 

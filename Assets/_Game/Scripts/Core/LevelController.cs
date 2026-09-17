@@ -204,7 +204,8 @@ namespace ColonyFlow
                 if (tile.View != null)
                 {
                     tile.View.AttachColony(colony);
-                    tile.View.MoveTo(slot.transform.position);
+                    // Make the box visually DOJump into the tray slot instead of linear move
+                    tile.View.JumpTo(slot.transform.position);
                 }
             }
             return added;

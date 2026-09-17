@@ -335,7 +335,10 @@ namespace ColonyFlow
 
                 if (TryGetBorderProjection(curr, out int bIdx, out int pDist, out int bDist))
                 {
-                    int totalCost = currentDepth + pDist + bDist;
+                    // Prioritize minimizing the distance walked OFF the border (currentDepth + pDist).
+                    // Multiply by a large factor so that walking along the border (bDist) is heavily preferred
+                    // and only acts as a tie-breaker, matching the player's visual expectation.
+                    int totalCost = (currentDepth + pDist) * 1000 + bDist;
                     if (totalCost < bestTotalCost)
                     {
                         bestTotalCost = totalCost;

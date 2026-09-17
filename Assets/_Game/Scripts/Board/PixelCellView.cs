@@ -45,6 +45,7 @@ namespace ColonyFlow
             if (meshRenderer != null)
             {
                 meshRenderer.enabled = true;
+                meshRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
                 colorBlock ??= new MaterialPropertyBlock();
                 colorBlock.Clear();
                 colorBlock.SetColor(BaseColor, color);
@@ -53,7 +54,8 @@ namespace ColonyFlow
                 if (boxVisual != null)
                 {
                     boxVisual.localRotation = Quaternion.identity;
-                    boxVisual.localScale = Vector3.one * fill;
+                    // Overlap by 5% to bury the dark V-grooves of the rounded edges
+                    boxVisual.localScale = Vector3.one * (fill * 1.05f);
                 }
                 
                 if (spriteRenderer != null) spriteRenderer.enabled = false;
@@ -151,7 +153,7 @@ namespace ColonyFlow
             if (boxVisual != null)
             {
                 boxVisual.localRotation = Quaternion.identity;
-                boxVisual.localScale = Vector3.one * fill;
+                boxVisual.localScale = Vector3.one * (fill * 1.05f);
             }
             if (spriteRenderer != null) spriteRenderer.sortingOrder = 10;
             SimplePool.Despawn(this);
@@ -167,7 +169,7 @@ namespace ColonyFlow
             if (boxVisual != null)
             {
                 boxVisual.localRotation = Quaternion.identity;
-                boxVisual.localScale = Vector3.one * fill;
+                boxVisual.localScale = Vector3.one * (fill * 1.05f);
             }
             if (spriteRenderer != null) spriteRenderer.sortingOrder = 10;
         }

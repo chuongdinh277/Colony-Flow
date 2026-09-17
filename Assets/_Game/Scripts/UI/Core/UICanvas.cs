@@ -1,4 +1,5 @@
 using UnityEngine;
+using ColonyFlow;
 
 public class UICanvas : MonoBehaviour
 {
@@ -26,6 +27,18 @@ public class UICanvas : MonoBehaviour
         {
             canvas.worldCamera = Camera.main;
             canvas.planeDistance = 100f; // Ensure it's behind 3D elements which are at 0
+        }
+
+        // Automatically juice up all buttons in this canvas
+        foreach (var btn in GetComponentsInChildren<UnityEngine.UI.Button>(true))
+        {
+            if (btn.GetComponent<UIButtonJuice>() == null)
+            {
+                // Exclude specific buttons that have their own custom juice
+                if (btn.name.Contains("Speed") || btn.name.Contains("Booster")) continue;
+                
+                btn.gameObject.AddComponent<UIButtonJuice>();
+            }
         }
 
         float ratio = (float)Screen.height / (float)Screen.width;

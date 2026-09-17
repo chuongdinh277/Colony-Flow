@@ -17,6 +17,18 @@ public class UICanvasGameplay : UICanvas
     private RenderTexture gameplayRenderTexture;
     private RawImage gameplayRenderImage;
     private Camera sourceCamera;
+
+    private GameObject boosterOverlayObj;
+
+    private void OnEnable()
+    {
+        if (boosterOverlayObj != null) boosterOverlayObj.SetActive(true);
+    }
+
+    private void OnDisable()
+    {
+        if (boosterOverlayObj != null) boosterOverlayObj.SetActive(false);
+    }
     private int sourceCameraMask;
 
     [Header("Top Bar")]
@@ -159,7 +171,8 @@ public class UICanvasGameplay : UICanvas
         if (canvas == null) return;
         canvas.renderMode = RenderMode.ScreenSpaceCamera;
         canvas.worldCamera = Camera.main;
-        canvas.planeDistance = 100f;
+        canvas.planeDistance = 5f;
+        canvas.sortingOrder = 100;
 
         // Pixel boxes and colony boxes use renderer orders 11..31. Keeping the
         // gameplay canvas below them makes those objects visible over the authored
@@ -288,12 +301,32 @@ public class UICanvasGameplay : UICanvas
             Transform boosterBar = FindDeepChild(transform, "BoosterBar");
             if (boosterBar != null)
             {
-                Canvas boosterCanvas = boosterBar.GetComponent<Canvas>();
-                if (boosterCanvas == null) boosterCanvas = boosterBar.gameObject.AddComponent<Canvas>();
-                boosterCanvas.overrideSorting = true;
-                boosterCanvas.sortingOrder = hostCanvas.sortingOrder + 10;
-                if (boosterBar.GetComponent<GraphicRaycaster>() == null)
-                    boosterBar.gameObject.AddComponent<GraphicRaycaster>();
+                // Create a new root Canvas that renders as ScreenSpaceOverlay
+                // This guarantees it will always render on top of the 3D board blocks.
+                boosterOverlayObj = new GameObject("BoosterBarOverlayCanvas");
+                Canvas overlayCanvas = boosterOverlayObj.AddComponent<Canvas>();
+                overlayCanvas.renderMode = RenderMode.ScreenSpaceOverlay;
+                overlayCanvas.sortingOrder = 100;
+
+                UnityEngine.UI.CanvasScaler scaler = boosterOverlayObj.AddComponent<UnityEngine.UI.CanvasScaler>();
+                scaler.uiScaleMode = UnityEngine.UI.CanvasScaler.ScaleMode.ScaleWithScreenSize;
+                scaler.referenceResolution = new Vector2(1080, 1920);
+                scaler.screenMatchMode = UnityEngine.UI.CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
+                scaler.matchWidthOrHeight = 1f;
+
+                boosterOverlayObj.AddComponent<UnityEngine.UI.GraphicRaycaster>();
+                
+                // Parent it to the same parent as UICanvasGameplay to tie its lifecycle/active state
+                boosterOverlayObj.transform.SetParent(transform.parent, false);
+
+                // Preserve original position/anchors when changing parent
+                RectTransform rt = boosterBar.GetComponent<RectTransform>();
+                Vector2 anchoredPos = rt.anchoredPosition;
+                boosterBar.SetParent(boosterOverlayObj.transform, false);
+                rt.anchorMin = new Vector2(0.5f, 0f);
+                rt.anchorMax = new Vector2(0.5f, 0f);
+                rt.pivot = new Vector2(0.5f, 0.5f);
+                rt.anchoredPosition = anchoredPos;
             }
 
             Transform safeArea = FindDeepChild(transform, "SafeArea");
@@ -752,6 +785,7 @@ public class UICanvasGameplay : UICanvas
 
     private void OnDestroy()
     {
+        if (boosterOverlayObj != null) Destroy(boosterOverlayObj);
         RestoreSourceCameraMask();
         if (gameplayRenderCamera != null) Destroy(gameplayRenderCamera.gameObject);
         if (gameplayRenderTexture != null)

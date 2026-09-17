@@ -84,12 +84,19 @@ public class UICanvasGameSetting : UICanvas
         }
 
         Refresh(false);
+        ApplyContextVisibility();
     }
 
     private void OnSoundClicked() { sound = !sound; SoundManager.Ins?.SetFxEnabled(sound); Refresh(true); }
     private void OnMusicClicked() { music = !music; SoundManager.Ins?.SetMusicEnabled(music); Refresh(true); }
     private void OnVibrationClicked() { vibration = !vibration; Refresh(true); }
     private void OnThemeClicked() { theme = !theme; Refresh(true); }
+
+    private void ApplyContextVisibility()
+    {
+        if (btnRetry != null) btnRetry.gameObject.SetActive(gameplay);
+        if (btnHome != null) btnHome.gameObject.SetActive(gameplay);
+    }
 
     private void Refresh(bool animate = false)
     {
@@ -209,6 +216,7 @@ public class UICanvasGameSetting : UICanvas
         if (setting != null)
         {
             setting.gameplay = fromGameplay;
+            setting.ApplyContextVisibility();
             if (fromGameplay && GameManager.Ins != null)
             {
                 GameManager.Ins.Pause(true);

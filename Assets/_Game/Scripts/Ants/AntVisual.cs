@@ -6,7 +6,7 @@ namespace ColonyFlow
     {
         [SerializeField] private Renderer[] coloredRenderers;
         [SerializeField] private Animator animator;
-        [SerializeField, HideInInspector] private int visualVersion = 7;
+        // [SerializeField, HideInInspector] private int visualVersion = 7;
 
         private AntMaterialPalette palette;
         private static readonly int IdleTrigger = Animator.StringToHash("Idle");
@@ -61,7 +61,8 @@ namespace ColonyFlow
             float angle = Mathf.Atan2(planar.y, planar.x) * Mathf.Rad2Deg - 90f;
             // Keep feet on the XY play surface. The tilted gameplay camera supplies
             // the side view and natural far-leg occlusion for every travel direction.
-            transform.rotation = Quaternion.AngleAxis(angle, Vector3.forward);
+            Quaternion targetRot = Quaternion.AngleAxis(angle, Vector3.forward);
+            transform.rotation = Quaternion.Slerp(transform.rotation, targetRot, Time.deltaTime * 18f);
         }
     }
 }

@@ -31,7 +31,7 @@ public class UICanvasGameMenu : UICanvas
         // Bind Bottom Menu Buttons
         if (btnRanking != null) btnRanking.onClick.AddListener(() => Debug.Log("Ranking clicked - Coming Soon!"));
         if (btnTasks != null) btnTasks.onClick.AddListener(() => Debug.Log("Tasks clicked - Coming Soon!"));
-        if (btnStore != null) btnStore.onClick.AddListener(() => Debug.Log("Store clicked - Coming Soon!"));
+        if (btnStore != null) btnStore.onClick.AddListener(OnStoreClicked);
         if (btnAwards != null) btnAwards.onClick.AddListener(() => Debug.Log("Awards clicked - Coming Soon!"));
 
         // Init UI values
@@ -69,6 +69,12 @@ public class UICanvasGameMenu : UICanvas
     private void OnSettingsClicked()
     {
         UICanvasGameSetting.Show(false);
+    }
+
+    private void OnStoreClicked()
+    {
+        SoundManager.Ins?.PlayUIFx(UIFxID.ButtonClick);
+        UICanvasStore.Show();
     }
 
     public static UICanvasGameMenu Show()
