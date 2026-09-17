@@ -144,7 +144,7 @@ namespace ColonyFlow
         {
             targetPosition = worldPosition;
             isJumping = true;
-            TF.DOJump(worldPosition, 3f, 1, 0.4f)
+            TF.DOJump(worldPosition, 1.3f, 1, 0.4f)
               .SetEase(Ease.OutQuad)
               .OnComplete(() => isJumping = false);
         }

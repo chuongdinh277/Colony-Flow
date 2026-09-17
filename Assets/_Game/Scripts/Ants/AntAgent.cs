@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using DG.Tweening;
 
 namespace ColonyFlow
 {
@@ -26,6 +27,7 @@ namespace ColonyFlow
         private Vector3 travelScale;
         private Transform spriteAntRoot;
         private SpriteRenderer visibleAntRenderer;
+        private bool isJumpingIntoHole;
 
         public AntState State { get; private set; } = AntState.Inactive;
         public PixelCell Target => target;
@@ -54,6 +56,8 @@ namespace ColonyFlow
             int returnDestinationIndex, IReadOnlyList<Vector3> returnWaypoints, Color color,
             Action<AntAgent, PixelCell, bool> onCompleted)
         {
+            TF.DOKill();
+            isJumpingIntoHole = false;
             board = pixelBoard;
             target = pixel;
             ReleaseCarriedBox();
@@ -84,7 +88,7 @@ namespace ColonyFlow
 
         private void Update()
         {
-            if (State == AntState.Inactive || State == AntState.Completed) return;
+            if (State == AntState.Inactive || State == AntState.Completed || isJumpingIntoHole) return;
 
             if (State != AntState.Returning && !pickedUp && (target == null || target.IsDestroyed))
             {
@@ -108,13 +112,21 @@ namespace ColonyFlow
                         Finish(true);
                         return;
                     }
+
+                    Vector3 entrance = returnRoute[returnRoute.Count - 1];
+                    float distanceToHole = Vector3.Distance(TF.position, entrance);
+                    
+                    if (distanceToHole <= board.CellSize * 2.5f)
+                    {
+                        isJumpingIntoHole = true;
+                        TF.DOJump(entrance, 0.7f, 1, 0.35f).SetEase(Ease.InOutSine);
+                        TF.DOScale(0f, 0.35f).SetEase(Ease.InBack).OnComplete(() => Finish(true));
+                        return;
+                    }
+
                     Vector3 destination = returnRoute[returnRouteIndex];
                     FaceTravelDirection(destination - TF.position);
                     TF.position = Vector3.MoveTowards(TF.position, destination, moveSpeed * Time.deltaTime);
-                    Vector3 entrance = returnRoute[returnRoute.Count - 1];
-                    float distanceToHole = Vector3.Distance(TF.position, entrance);
-                    float shrink = Mathf.Clamp01(distanceToHole / Mathf.Max(board.CellSize * 5f, .01f));
-                    TF.localScale = travelScale * Mathf.Lerp(.06f, 1f, shrink);
                     if ((TF.position - destination).sqrMagnitude <= 0.000001f)
                     {
                         returnRouteIndex++;
